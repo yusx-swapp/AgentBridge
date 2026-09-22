@@ -212,6 +212,47 @@ def test_probe_falls_back_to_partial_adapter_models(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("login_status", [
+    ProbeResult(0, "Logged in using ChatGPT SECRET=private"),
+    ProbeResult(1, "Not logged in SECRET=private"),
+    ProbeResult(None, timed_out=True),
+    ProbeResult(None, error=True),
+])
+@pytest.mark.parametrize("include_models", [True, False])
+def test_codex_account_login_is_not_a_provider_authentication_probe(monkeypatch, login_status, include_models):
+    monkeypatch.setattr(runtime_probe.shutil, "which", lambda _: "C:/private/codex.exe")
+    monkeypatch.setenv("CODEX_HOME", "C:/private/provider-profile")
+    calls = []
+
+    def runner(argv, timeout):
+        calls.append(argv)
+        if argv == ["codex", "--version"]:
+            return ProbeResult(0, "codex-cli 0.155.1\nSECRET=private")
+        if argv == ["codex", "login", "status"]:
+            return login_status
+        raise AssertionError(argv)
+
+    capability = probe_family("codex-cli", runner=runner, include_models=include_models)
+    assert capability["authentication"] == {"status": "unknown"}
+    assert capability["installation"]["version"] == "0.155.1"
+    assert calls == [["codex", "--version"]]
+    assert availability(capability, "terminal") == (True, "available")
+    assert availability(capability, "structured") == (False, "surface_unavailable")
+    serialized = json.dumps(capability)
+    assert "private" not in serialized and "SECRET" not in serialized
+
+
+def test_codex_still_requires_an_installed_executable(monkeypatch):
+    monkeypatch.setattr(runtime_probe.shutil, "which", lambda _: None)
+
+    def runner(argv, timeout):
+        raise AssertionError("A missing executable must not be probed")
+
+    capability = probe_family("codex-cli", runner=runner)
+    assert capability["authentication"] == {"status": "not_applicable"}
+    assert availability(capability, "terminal") == (False, "runtime_not_installed")
+
+
 def test_phase_a_probe_keeps_static_models_until_discovery_runs(monkeypatch):
     adapter = _adapter(probe_hint=lambda: True, auth_argv=())
     monkeypatch.setattr(runtimes, "all_adapters", lambda: [adapter])

@@ -528,6 +528,10 @@ def test_launch_migration_marks_legacy_rows_once_and_leaves_new_rows_unstarted(a
     ("runtime.unavailable", "context.runtime_mismatch", "original runtime"),
     ("runtime.unavailable", "context.cwd_mismatch", "original local project"),
     ("runtime.unavailable", "context.recovery_required", "explicit local recovery"),
+    ("runtime.unavailable", "runtime_not_authenticated", "authentication check reported not signed in"),
+    ("runtime.unavailable", "runtime_auth_probe_failed", "could not check runtime authentication"),
+    ("error", "runtime_not_authenticated", "authentication check reported not signed in"),
+    ("error", "runtime_auth_probe_failed", "could not check runtime authentication"),
 ])
 def test_resume_failure_is_visible_sanitized_and_stale_failure_cannot_break_retry(
         app_client, frame_type, code, text):
@@ -544,6 +548,7 @@ def test_resume_failure_is_visible_sanitized_and_stale_failure_cannot_break_retr
             visible = _human_frames(human)
             event = _one(visible, frame_type)
             assert text in event["message"]
+            assert event["code"] == code
             assert raw not in str(visible)
             assert _current(client, sid)["state"] != "live"
             # Failure never creates a replacement Session or retries implicitly.

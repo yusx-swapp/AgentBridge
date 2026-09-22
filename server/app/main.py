@@ -2097,6 +2097,8 @@ def _matches_session_launch(sess: Session, frame: dict, *, adopt_legacy=False) -
 def _session_failure_message(code: object) -> str:
     """Public recovery guidance, never raw connector stderr or local paths."""
     return {
+        "runtime_not_authenticated": "The connector's runtime authentication check reported not signed in. Check the selected provider's authentication on the connector machine, then retry explicitly; no replacement session was created.",
+        "runtime_auth_probe_failed": "The connector could not check runtime authentication. Check the local runtime and provider configuration, then retry explicitly; no replacement session was created.",
         "context.not_found": "No local native-context record was found. Restore the original connector state or start a new session explicitly.",
         "context.changed": "The original runtime or local project no longer matches. Restore the original configuration or start a new session explicitly.",
         "context.runtime_mismatch": "The original runtime no longer matches. Restore the original runtime or start a new session explicitly.",
@@ -2376,7 +2378,8 @@ async def ws_devbox(ws: WebSocket):
                     await hub.to_session_humans(sess.id, frame)
             elif t == "error" and sess:
                 code = frame.get("code")
-                if code not in ("start_failed", "spawn_failed", "configuration_changed", "context.not_found",
+                if code not in ("runtime_not_authenticated", "runtime_auth_probe_failed",
+                                "start_failed", "spawn_failed", "configuration_changed", "context.not_found",
                                 "context.changed", "context.in_use", "context.recovery_required",
                                 "context.writer_unavailable", "context.runtime_mismatch", "context.cwd_mismatch"):
                     code = "session_failed"

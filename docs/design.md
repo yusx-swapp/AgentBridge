@@ -289,6 +289,11 @@ returns no model ID, the connector keeps that family's static adapter catalog an
 marks `models.status=partial`, `models.source=adapter`; with a runtime result it
 marks `complete/runtime`. Only a reliable non-interactive authentication-status
 probe can block startup; when a safe probe is impossible the status is `unknown`.
+Codex deliberately declares no auth-status probe: account-level `login status`
+cannot validate the provider/profile/project configuration chosen by an actual CLI
+launch. Its authentication remains `unknown` (not success); the native CLI handles
+provider authentication. This adds no server-side provider parsing and does not
+weaken installation, compatibility, surface, role, or keyboard-ownership checks.
 The server stores the capability as opaque JSON, consulting only generic lifecycle
 and context feature keys for explicit Resume. The browser chooses the chat
 surface from `features.structured` and generates model/reasoning/file widgets from

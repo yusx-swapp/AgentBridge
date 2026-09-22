@@ -177,6 +177,20 @@ in an existing installation's output is compatibility, not the fresh-install nam
 Canonical environment variables win by **presence**, even if empty; see the
 [exact precedence rules](docs/agentbridge.md#environment-and-home-compatibility).
 
+### Codex authentication
+
+Codex reports authentication as **unknown**, not authenticated: `codex login status`
+is not a reliable check for the provider/profile the actual CLI will use. AgentBridge
+does not run that account-login probe or copy Codex's configuration/credential logic;
+the native CLI handles its selected provider when explicitly started. Missing Codex
+and unsupported surfaces still block startup, and other runtimes' auth checks remain.
+
+If an older connector reports `runtime_not_authenticated` for a custom Codex provider,
+update that connector to a release containing this fix before retrying explicitly.
+Updating the server alone does not update an installed or running connector.
+`runtime_auth_probe_failed` means the connector could not complete an auth check,
+not that a provider's credentials have been proven invalid.
+
 ## LocalProjects and user skills
 
 Register projects on the machine running the connector. Absolute paths are stored

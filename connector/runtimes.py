@@ -703,7 +703,10 @@ register(RuntimeAdapter(
     install_command="npm install -g @openai/codex",
     personal_skill_roots=_AGENT_PERSONAL_SKILL_ROOTS,
     project_skill_roots=_AGENT_PROJECT_SKILL_ROOTS,
-    auth_argv=("login", "status"),
+    # Account login status cannot validate the provider/profile selected by the
+    # actual CLI (including project-local configuration). Report unknown rather
+    # than blocking custom providers or claiming their credentials are verified.
+    auth_argv=(),
 ))
 
 # ---------------------------------------------------------------------------

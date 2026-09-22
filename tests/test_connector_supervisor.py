@@ -764,6 +764,45 @@ class SupervisorStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sup._open_locks, {})
         self.assertEqual(sup._open_users, {})
 
+    async def test_codex_defers_provider_auth_but_other_runtime_auth_still_blocks(self):
+        from connector import runtime_probe
+
+        for runtime in ("codex-cli", "claude-code"):
+            with self.subTest(runtime=runtime):
+                FakePty.instances = []
+                sup = self.supervisor()
+                sup.agents["a"]["runtime"] = runtime
+                calls = []
+
+                def runner(argv, timeout):
+                    calls.append(argv)
+                    if argv[-1] == "--version":
+                        return runtime_probe.ProbeResult(0, "CLI 0.155.1")
+                    return runtime_probe.ProbeResult(1, "Not logged in SECRET=private")
+
+                def probe(family, **kwargs):
+                    return runtime_probe.probe_family(family, runner=runner, **kwargs)
+
+                with mock.patch.object(supervisor_mod, "probe_family", probe), \
+                        mock.patch.object(supervisor_mod, "availability", runtime_probe.availability), \
+                        mock.patch.object(runtime_probe.shutil, "which", return_value="fake-cli"):
+                    await sup.open_pty("a", "s", surface="terminal", launch_id="new-launch")
+                errors = [f for f in sup.pending if f["type"] == "runtime.unavailable"]
+                ready = [f for f in sup.pending if f["type"] == "ready"]
+                if runtime == "codex-cli":
+                    self.assertEqual(calls, [["codex", "--version"]])
+                    self.assertEqual(errors, [])
+                    self.assertEqual(len(FakePty.instances), 1)
+                    self.assertEqual(len(ready), 1)
+                    self.assertEqual(ready[0]["launch_id"], "new-launch")
+                    self.assertEqual(ready[0]["surface"], "terminal")
+                else:
+                    self.assertEqual([f["code"] for f in errors], ["runtime_not_authenticated"])
+                    self.assertEqual(FakePty.instances, [])
+                    self.assertEqual(ready, [])
+                    self.assert_no_start_state(sup)
+                self.assertNotIn("SECRET=private", str(sup.pending))
+
     async def test_probe_resolve_constructor_and_partial_start_fail_safely(self):
         secret = r"SECRET=fake-token C:\private\workspace --private-argv"
 

@@ -220,6 +220,12 @@ exception/stderr text; no replacement session is created.
   are never uploaded. Version metadata is a parsed version number, not an arbitrary
   first output line. Probe output is captured in a temporary file and only a 64 KiB
   prefix is read into memory; timeouts and failed probes keep their fixed statuses.
+  Codex's adapter leaves `auth_argv` empty: `login status` checks an account login,
+  not the provider/profile/project config of a future CLI launch. Inventory and
+  startup probes therefore report authentication `unknown`, never a fabricated
+  authenticated result; Codex handles its own provider authentication. No config
+  files, credential files, login commands, or model requests are added to probing.
+  The generic availability checks and other adapters' auth probes are unchanged.
 - **`pty_session.py`** — cross-platform pseudo-terminal for interactive TUIs
   (Windows ConPTY via `pywinpty`; POSIX `pty.fork` + `os.execvp`). Default size
   120x30, re-sized by the first browser `resize` frame. Windows passes argv directly
@@ -327,6 +333,11 @@ exception/stderr text; no replacement session is created.
   are visible; a failed startup/resume clears the matching card's `starting`
   state to `inactive` while keeping input disabled and the error visible.
   Logical ready does not claim restored native history.
+  The server allowlists `runtime_not_authenticated` and `runtime_auth_probe_failed`
+  on session error frames and maps both error/unavailable variants to fixed,
+  actionable provider-auth guidance. It preserves the code without forwarding raw
+  connector stderr, paths, or credentials. Errors do not enable input, retry a
+  launch, or create a replacement session.
   Saved history immediately renders the full structured transcript or the latest
   terminal checkpoint plus remaining output, read-only. There is no timed player,
   seek/speed UI, recording download, or retention/deletion toolbar. The legacy
