@@ -1098,6 +1098,37 @@ test('Rename validation and 409 preserve the edit; pending duplicate saves issue
   pane.close();
 });
 
+test('Session cards are collapsed by default and each disclosure toggle is independent', async () => {
+  const h = harness(), { pane, root } = h.create('session-card-collapse');
+  h.sessions.set('a', [archived(), archived({ id: 'archived-2', title: 'Second work' })]);
+  await pane.open({ kind: 'history', agentId: 'a' });
+  const cards = root.querySelectorAll('[data-ui="history-item"]');
+  assert.equal(cards.length, 2);
+  const part = (card, name) => card.querySelector('[data-ui="' + name + '"]');
+  for (const card of cards) {
+    const toggle = part(card, 'session-details-toggle'), details = part(card, 'session-details');
+    assert.equal(part(card, 'session-title').hidden, false);
+    assert.equal(part(card, 'session-state').textContent, 'inactive');
+    assert.equal(toggle.tagName.toLowerCase(), 'button'); assert.equal(toggle.type, 'button');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.ok(details.id); assert.equal(toggle.getAttribute('aria-controls'), details.id);
+    assert.equal(details.hidden, true);
+    for (const name of ['session-detail', 'session-rename', 'session-resume', 'session-action-reason', 'history-replay'])
+      assert.ok(part(details, name), name + ' lives inside the collapsed details');
+  }
+  assert.notEqual(part(cards[0], 'session-details').id, part(cards[1], 'session-details').id);
+  part(cards[0], 'session-details-toggle').click();
+  assert.equal(part(cards[0], 'session-details').hidden, false);
+  assert.equal(part(cards[0], 'session-details-toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(part(cards[1], 'session-details').hidden, true, 'other cards stay collapsed');
+  assert.equal(part(cards[1], 'session-details-toggle').getAttribute('aria-expanded'), 'false');
+  part(cards[0], 'session-details-toggle').click();
+  assert.equal(part(cards[0], 'session-details').hidden, true);
+  assert.equal(part(cards[0], 'session-details-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(h.requests.some(request => ['POST', 'PATCH'].includes(request.method)), false, 'toggling is presentation-only');
+  pane.close();
+});
+
 test('History and replay are titled read-only views with no socket or POST, even when a recording was not retained', async () => {
   const h = harness(), { pane, root } = h.create('history-only');
   h.sessions.set('a', [archived({ title: '<script>unsafe()</script>' })]);

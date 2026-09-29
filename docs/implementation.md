@@ -326,7 +326,8 @@ exception/stderr text; no replacement session is created.
   reconnect, file reads, stale-response guards, and teardown. Closing detaches;
   it never terminates the backend session. New chat leaves the old session alive.
   Unsent drafts remain independent in memory and never enter layout storage.
-  History and live session headers provide metadata-only Rename with a
+  History and live session headers show title and state; a collapsed Details
+  disclosure holds id/time, actions, reasons, and metadata-only Rename with a
   retained draft on title conflict. History separates View history, Attach live,
   and explicit Resume; unsupported/terminal historical restart is disabled with
   a reason, not converted into New session. Preparation and safe resume failures

@@ -339,6 +339,13 @@ code.command-inline{font-size:11px;color:var(--fg);overflow-wrap:anywhere}
 /* Session history actions stay local to the existing pane surfaces. */
 .pane-session-card{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--line);flex:none;font-size:11px}
 .pane-session-card .session-title{flex:1;min-width:120px;overflow-wrap:anywhere;font-weight:600}
+.pane-session-card .pane-session-state{flex:none;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px}
+.pane-session-card .pane-session-state[data-state="live"]{color:var(--good)}
+.pane-session-card .pane-session-state[data-state="starting"]{color:var(--warn)}
+.pane-session-card .pane-session-toggle::after{content:"\25B8";margin-left:4px}
+.pane-session-card .pane-session-toggle[aria-expanded="true"]::after{content:"\25BE"}
+.pane-session-card .pane-session-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.pane-session-card .pane-session-details{flex-basis:100%;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .pane-session-card [data-ui="session-detail"],.pane-session-card [data-ui="session-action-reason"],.pane-session-card [data-ui="session-action-error"]{flex-basis:100%;overflow-wrap:anywhere}
 .pane-session-card .pane-session-actions,.pane-session-card .session-rename-form{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .pane-session-card .session-rename-form{flex-basis:100%}
