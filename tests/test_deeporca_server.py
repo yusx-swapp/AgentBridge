@@ -57,7 +57,7 @@ def test_platform_main_has_no_deeporca_contract_or_runtime_branches():
     assert "from .integrations import InputRejected, runtime_policy" in source
 
 
-@pytest.mark.parametrize("runtime", [None, "mock", "claude-code", "codex", "copilot", "future-runtime"])
+@pytest.mark.parametrize("runtime", [None, "codex-cli", "claude-code", "codex", "copilot", "future-runtime"])
 def test_default_policy_preserves_existing_runtime_behavior(runtime):
     policy = runtime_policy(runtime)
     assert type(policy) is RuntimePolicy
@@ -381,7 +381,7 @@ def test_observed_status_ws_spoof_stale_and_sanitization(app_client):
     other_box, _, other_project = machine(client, "other")
     agent = create(client, box, project).json()
     other = create(client, other_box, other_project).json()
-    generic = create(client, box, project, handle="generic", runtime="mock").json()
+    generic = create(client, box, project, handle="generic", runtime="codex-cli").json()
     revision = agent["runtime_status"]["revision"]
     with client.websocket_connect("/ws/devbox", headers=headers) as connector:
         assert connector.receive_json()["type"] == "hello"
@@ -451,13 +451,13 @@ def test_binding_immutable_delete_only_pushes_directory_and_generic_unchanged(ap
     agent = create(client, box, project, runtime_config={"model": "model-1"}).json()
     url = f"/api/agents/{agent['id']}"
     assert client.patch(url, json={"display_name": "Renamed"}).json()["display_name"] == "Renamed"
-    for change in ({"local_project_id": "other"}, {"runtime": "mock"},
+    for change in ({"local_project_id": "other"}, {"runtime": "codex-cli"},
                    {"runtime_config": {"model": "model-2"}}):
         assert client.patch(url, json=change).status_code == 409
     assert client.patch(url, json={"runtime_config": {"profile": {"mode": "bind"}}}).status_code == 422
     assert client.get(url).json()["runtime_status"] == agent["runtime_status"]
     assert client.post(f"/api/devboxes/{box}/projects", headers=headers, json={"projects": []}).status_code == 409
-    generic = create(client, box, project, handle="generic", runtime="mock",
+    generic = create(client, box, project, handle="generic", runtime="codex-cli",
                      runtime_config={"custom": "kept"}, cwd="legacy-local", launch_cmd="custom").json()
     assert generic["runtime_config"] == {"custom": "kept"}
     assert generic["runtime_status"] is None and generic["renderer"] is None
@@ -526,7 +526,7 @@ def test_previous_database_migrates_runtime_status_and_deeporca_surface(app_clie
     box, _, project = machine(client)
     agent = create(client, box, project).json()
     sid = client.post(f"/api/agents/{agent['id']}/sessions", json={}).json()["id"]
-    generic = create(client, box, project, handle="generic", runtime="mock").json()
+    generic = create(client, box, project, handle="generic", runtime="codex-cli").json()
     generic_sid = client.post(f"/api/agents/{generic['id']}/sessions", json={}).json()["id"]
     from sqlalchemy import inspect, text
     engine = main.models._engine
@@ -610,7 +610,7 @@ def test_deeporca_permission_rejected_after_attachment_and_role_authorization(ap
 def test_generic_permission_and_runtime_specific_input_options_still_forward(app_client, surface):
     client, main = app_client
     box, _, project = machine(client)
-    agent = create(client, box, project, runtime="mock").json()
+    agent = create(client, box, project, runtime="codex-cli").json()
     sid = client.post(f"/api/agents/{agent['id']}/sessions", json={"surface": surface}).json()["id"]
     frames = [
         {"type": "permission", "session_id": sid, "request_id": "cli-approval", "decision": "allow"},
@@ -744,7 +744,7 @@ def test_deeporca_invalid_input_ids_are_bounded_correlated_rejections(app_client
                 send.assert_not_awaited()
 
 
-@pytest.mark.parametrize("runtime", [RUNTIME_ID, "mock"])
+@pytest.mark.parametrize("runtime", [RUNTIME_ID, "codex-cli"])
 def test_native_input_ids_survive_forward_and_connector_ack_without_canonicalization(app_client, runtime):
     client, main = app_client
     box, headers, project = machine(client)
@@ -962,7 +962,7 @@ def test_identity_fences_and_plaintext_rejection_apply_to_settings(app_client, c
     url = f"/api/agents/{agent['id']}"
     ready = mark_ready(main, agent)
     for body, status in (
-        ({"runtime": "mock"}, 409),
+        ({"runtime": "codex-cli"}, 409),
         ({"local_project_id": "another-project"}, 409),
         ({"devbox_id": "another-box"}, 422),
         ({"handle": "another-handle"}, 422),
@@ -1095,7 +1095,7 @@ def test_legacy_configs_and_ordinary_runtimes_keep_existing_behavior(app_client)
     compatible = {**config(model="fixed"), "model": "fixed"}
     response = client.patch(f"/api/agents/{fixed['id']}", json={"runtime_config": compatible})
     assert response.status_code == 200, response.text
-    for runtime in ("mock", "claude-code", "codex", "copilot", "future-runtime"):
+    for runtime in ("codex-cli", "claude-code", "codex", "copilot", "future-runtime"):
         agent = create(client, box, project, handle=runtime, runtime=runtime,
                        runtime_config={"custom": "unchanged"}).json()
         url = f"/api/agents/{agent['id']}"
@@ -1484,7 +1484,7 @@ def test_resume_keeps_authorized_binding_and_policy_metadata(app_client, bound):
             assert not _commands(_connector_frames(runtime))
             # A resume request is not an alternative configuration/update route.
             launch, frames = resume(client, human, runtime, sid,
-                runtime="mock", runtime_config={"profile": {"mode": "bind", "profile_ref": "unowned"}},
+                runtime="codex-cli", runtime_config={"profile": {"mode": "bind", "profile_ref": "unowned"}},
                 credential={"mode": "plaintext", "api_key": "sensitive-marker"},
                 local_project_id="other-project", cwd="C:/private-profile", launch_cmd="unsafe")
             assert set(launch) == {"type", "agent_id", "session_id", "launch_id", "cols", "rows", "surface"}
@@ -1600,7 +1600,7 @@ def test_end_allows_only_validated_idle_settings_and_resume_uses_same_identity(a
             redirect = deepcopy(desired)
             redirect["llm"]["base_url"] = "https://other.example/v1"
             assert client.patch(url, json={"runtime_config": redirect}).status_code == 409
-            assert client.patch(url, json={"runtime": "mock"}).status_code == 409
+            assert client.patch(url, json={"runtime": "codex-cli"}).status_code == 409
             assert client.patch(url, json={"local_project_id": "other"}).status_code == 409
             changed = client.patch(url, json={"runtime_config": desired})
             assert changed.status_code == 200, changed.text

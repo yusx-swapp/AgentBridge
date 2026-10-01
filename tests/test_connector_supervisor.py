@@ -62,7 +62,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(availability.stop)
 
     async def test_open_pty_emits_ready_and_output(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
         types = [f["type"] for f in sup.pending]
         self.assertIn("output", types)
@@ -76,19 +76,19 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
     async def test_agents_frame_refreshes_directory_for_hot_added_agent(self):
         # Agent 'b' does not exist at startup; a pushed 'agents' frame should
         # make it resolvable so a subsequent open uses its runtime.
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         self.assertNotIn("b", sup.agents)
         await sup.handle_control({"type": "agents", "agents": [
-            {"id": "a", "runtime": "mock"},
-            {"id": "b", "runtime": "mock", "launch_cmd": None},
+            {"id": "a", "runtime": "codex-cli"},
+            {"id": "b", "runtime": "codex-cli", "launch_cmd": None},
         ]})
         self.assertIn("b", sup.agents)
-        self.assertEqual(sup.agents["b"]["runtime"], "mock")
+        self.assertEqual(sup.agents["b"]["runtime"], "codex-cli")
         await sup.handle_control({"type": "open", "agent_id": "b", "session_id": "s"})
         self.assertIn(("b", "s"), sup.ptys)
 
     async def test_agents_frame_ignores_malformed_payload(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "agents", "agents": "nonsense"})
         self.assertEqual(set(sup.agents), {"a"})
         await sup.handle_control({
@@ -106,8 +106,8 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         removed_pty = FakePty()
         kept_pty = FakePty()
         sup = SessionSupervisor({
-            "removed": {"id": "removed", "runtime": "mock"},
-            "kept": {"id": "kept", "runtime": "mock"},
+            "removed": {"id": "removed", "runtime": "codex-cli"},
+            "kept": {"id": "kept", "runtime": "codex-cli"},
         })
         sup.ptys = {
             ("removed", "s1"): removed_pty,
@@ -128,7 +128,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
 
         await sup.handle_control({
             "type": "agents",
-            "agents": [{"id": "kept", "runtime": "mock"}],
+            "agents": [{"id": "kept", "runtime": "codex-cli"}],
         })
 
         self.assertEqual(set(sup.agents), {"kept"})
@@ -149,7 +149,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(kept_pty.killed)
 
     async def test_transport_restart_does_not_kill_pty(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         sup_end, tx_end = LoopbackChannel.pair()
         sup.attach(sup_end)
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
@@ -352,7 +352,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(drain, return_exceptions=True)
 
     async def test_close_control_kills_only_that_pty(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s1"})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s2"})
         p1 = FakePty.instances[0]
@@ -362,7 +362,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(("a", "s2"), sup.ptys)
 
     async def test_input_and_resize_reach_pty(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
         p = FakePty.instances[0]
         await sup.handle_control({"type": "input", "agent_id": "a", "session_id": "s",
@@ -373,7 +373,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(p.size, (80, 24))
 
     async def test_duplicate_input_id_writes_once_and_acks_each_delivery(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
         p = FakePty.instances[0]
         frame = {"type": "input", "agent_id": "a", "session_id": "s",
@@ -387,7 +387,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(f["status"] == "delivered" for f in acks))
 
     async def test_pty_instance_is_stable_and_output_seq_increments(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         open_frame = {"type": "open", "agent_id": "a", "session_id": "s"}
         await sup.handle_control(open_frame)
         instance_id = sup.pty_instances[("a", "s")]
@@ -400,7 +400,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(f["pty_instance_id"] == instance_id for f in outputs))
 
     async def test_open_replaces_dead_pty_and_ignores_late_stale_exit(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         open_frame = {"type": "open", "agent_id": "a", "session_id": "s"}
         await sup.handle_control(open_frame)
         stale = FakePty.instances[0]
@@ -424,7 +424,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale_exits, [])
 
     async def test_status_reports_sessions_and_pending(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
         st = sup.status()
         self.assertEqual(st["sessions"][0]["agent_id"], "a")
@@ -433,7 +433,7 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(st["pending_frames"], 0)
 
     async def test_shutdown_kills_all(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "s"})
         p = FakePty.instances[0]
         sup.shutdown()
@@ -657,7 +657,7 @@ class TwoProcessSplitTests(unittest.IsolatedAsyncioTestCase):
     async def test_transport_reconnect_over_real_ipc_keeps_pty(self):
         ensure_secret(self._suffix)
         service = SupervisorService(endpoint=self._endpoint)
-        service.supervisor.agents = {"a": {"runtime": "mock"}}
+        service.supervisor.agents = {"a": {"runtime": "codex-cli"}}
         # Serve the endpoint but let us drive user_suffix via env.
         service._server = None
 
@@ -753,7 +753,7 @@ class SupervisorStartupTests(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(patcher.stop)
 
     def supervisor(self):
-        sup = SessionSupervisor({"a": {"runtime": "mock"}})
+        sup = SessionSupervisor({"a": {"runtime": "codex-cli"}})
         self.addCleanup(sup.shutdown)
         return sup
 
@@ -828,7 +828,7 @@ class SupervisorStartupTests(unittest.IsolatedAsyncioTestCase):
                 if stage == "start":
                     self.assertTrue(FakePty.instances[-1].killed)
 
-    async def test_unknown_runtime_is_visible_and_never_spawns_mock(self):
+    async def test_unknown_runtime_is_visible_and_never_spawns(self):
         sup = self.supervisor()
         sup.agents["a"]["runtime"] = "not-registered"
         await sup.open_pty("a", "s")
@@ -895,7 +895,7 @@ class SupervisorStartupTests(unittest.IsolatedAsyncioTestCase):
                         await sup.handle_control({"type": "agents", "agents": []})
                         # A same-id re-add must not resurrect the obsolete start.
                         await sup.handle_control({"type": "agents", "agents": [
-                            {"id": "a", "runtime": "mock"}]})
+                            {"id": "a", "runtime": "codex-cli"}]})
                     elif action == "close":
                         await sup.handle_control({"type": "close", "agent_id": "a", "session_id": "s"})
                     else:

@@ -33,8 +33,8 @@ Three cooperating parts:
   frames between browsers and connectors. It never runs models or holds model
   credentials.
 - **Connector** (`connector/`) — a Python client the user runs on their own
-  machine. It launches the actual CLI agents (Claude Code, Copilot CLI, Codex
-  CLI, or a mock), owns the PTYs / structured sessions, and streams output back
+  machine. It launches the actual CLI agents (Claude Code, Copilot CLI, or Codex
+  CLI), owns the PTYs / structured sessions, and streams output back
   over a durable spool. Model keys and LocalProject source paths stay local;
   terminal bytes or canonical events are relayed through the server.
 - **Web** (`web/`) — a static single-page app. Native structured chat for
@@ -208,12 +208,12 @@ exception/stderr text; no replacement session is created.
 - **`runtimes.py`** — single source of truth for runtime adapters. `RuntimeAdapter`
   declares stable id/label, argv, model/permission allowlists, non-secret env,
   probe hints, terminal/structured surfaces, and personal/project skill roots.
-  Built-in: `mock`, `claude-code`, `copilot-cli`, `codex-cli`,
+  Built-in: `claude-code`, `copilot-cli`, `codex-cli`,
   `claude-code-structured`, and `copilot-cli-structured`.
   `resolve_cmd()` builds argv (platform-appropriate parsing of `launch_cmd`, else the
   shared `build_command()`), rejects empty/control/shell-metacharacter tokens,
   and spawns argv directly (no shell). Unknown runtime IDs without an explicit
-  command are rejected instead of being replaced with `mock`.
+  command are rejected.
 - **`runtime_probe.py`** — runs local subprocess probes and emits capability
   schema v2 (installation, compatibility, authentication, models, surfaces, and a
   content-hash `revision`). Executable paths, raw probe output, and credentials
@@ -253,8 +253,6 @@ exception/stderr text; no replacement session is created.
 - **`diagnostics.py`** — shared server URL validation and `run_doctor()`
   URL/TLS/DNS/protocol checks. Unknown connection failures expose the exception
   class, not raw exception text that may contain URLs or credentials.
-- **`mockcli.py`** — a fake CLI (echoes `you said: ...`) so the full chain can be
-  exercised without a real agent.
 
 ### Runtime / surface behavior
 

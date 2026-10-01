@@ -127,7 +127,7 @@ class Agent(Base):
     devbox_id: Mapped[str] = mapped_column(ForeignKey("devbox.id", ondelete="CASCADE"))
     handle: Mapped[str] = mapped_column(String)
     display_name: Mapped[str] = mapped_column(String)
-    runtime: Mapped[str] = mapped_column(String, default="mock")  # runtime adapter/family id
+    runtime: Mapped[str] = mapped_column(String)  # runtime adapter/family id
     local_project_id: Mapped[str | None] = mapped_column(
         ForeignKey("devbox_project.id", ondelete="SET NULL"), nullable=True)
     runtime_config: Mapped[dict] = mapped_column(JSON, default=dict)

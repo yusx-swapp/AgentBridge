@@ -1415,6 +1415,8 @@ async def create_agent(devbox_id: str, request: Request, s: OrmSession = Depends
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(422, "expected a JSON object")
+    if not body.get("runtime"):
+        raise HTTPException(422, "runtime is required")
     policy = runtime_policy(body.get("runtime"))
     policy.validate_create_fields(body)
     local_project_id = body.get("local_project_id") or None
@@ -1434,7 +1436,7 @@ async def create_agent(devbox_id: str, request: Request, s: OrmSession = Depends
     a = Agent(
         id=new_id(), devbox_id=d.id,
         handle=body["handle"], display_name=body.get("display_name") or body["handle"],
-        runtime=body.get("runtime", "mock"),
+        runtime=body["runtime"],
         local_project_id=local_project_id, runtime_config=runtime_config,
         cwd=body.get("cwd"), launch_cmd=body.get("launch_cmd"),
     )

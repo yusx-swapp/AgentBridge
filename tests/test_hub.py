@@ -172,7 +172,7 @@ class HubSyncAgentsTests(unittest.IsolatedAsyncioTestCase):
         ))
 
         directory = [
-            {"id": "a1", "handle": "one", "runtime": "mock",
+            {"id": "a1", "handle": "one", "runtime": "codex-cli",
              "cwd": ".", "launch_cmd": None},
             {"id": "a2", "handle": "two", "runtime": "claude-code",
              "cwd": ".", "launch_cmd": None},
@@ -196,7 +196,7 @@ class HubSyncAgentsTests(unittest.IsolatedAsyncioTestCase):
         conn = DevboxConn(ws=ws, devbox_id="box", agent_ids={"a1"})
         await hub.add_devbox(conn, initial_frames=({"type": "hello"},))
         await hub.sync_agents(
-            "box", {"a1"}, [{"id": "a1", "runtime": "mock"}])
+            "box", {"a1"}, [{"id": "a1", "runtime": "codex-cli"}])
         for _ in range(10):
             if len(ws.sent) == 2:
                 break
@@ -236,7 +236,7 @@ class HubSyncAgentsTests(unittest.IsolatedAsyncioTestCase):
 
         pushed = await hub.sync_agents(
             "box", {"a1"},
-            [{"id": "a1", "handle": "one", "runtime": "mock",
+            [{"id": "a1", "handle": "one", "runtime": "codex-cli",
               "cwd": ".", "launch_cmd": None}],
         )
 
