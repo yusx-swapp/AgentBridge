@@ -50,7 +50,7 @@ def test_workspace_members_share_resources_and_viewer_is_read_only():
     assert devbox_response.status_code == 200
     devbox_id = devbox_response.json()["devbox"]["id"]
     agent_response = owner.post(f"/api/devboxes/{devbox_id}/agents", json={
-        "handle": "shell", "display_name": "Shell", "runtime": "mock"})
+        "handle": "shell", "display_name": "Shell", "runtime": "codex-cli"})
     assert agent_response.status_code == 200
     agent_id = agent_response.json()["id"]
 
@@ -75,7 +75,7 @@ def test_operator_can_create_session_and_viewer_websocket_is_read_only():
     workspace_id = client.get("/api/workspaces").json()[0]["id"]
     devbox_id = client.post("/api/devboxes", json={"name": "shared"}).json()["devbox"]["id"]
     agent_id = client.post(f"/api/devboxes/{devbox_id}/agents", json={
-        "handle": "shell", "display_name": "Shell", "runtime": "mock"}).json()["id"]
+        "handle": "shell", "display_name": "Shell", "runtime": "codex-cli"}).json()["id"]
     register(client, "operator")
     register(client, "viewer")
     login(client, "owner")
@@ -132,7 +132,7 @@ def test_terminal_input_does_not_renew_keyboard_lease_per_frame():
     register(client, "owner")
     devbox_id = client.post("/api/devboxes", json={"name": "shared"}).json()["devbox"]["id"]
     agent_id = client.post(f"/api/devboxes/{devbox_id}/agents", json={
-        "handle": "shell", "display_name": "Shell", "runtime": "mock"}).json()["id"]
+        "handle": "shell", "display_name": "Shell", "runtime": "codex-cli"}).json()["id"]
     session_id = client.post(f"/api/agents/{agent_id}/sessions").json()["id"]
 
     with patch.object(main, "renew_keyboard_lease", wraps=main.renew_keyboard_lease) as renew:

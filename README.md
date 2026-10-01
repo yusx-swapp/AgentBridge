@@ -47,7 +47,7 @@ CLI/package identifier and the basis for the `AGENTBRIDGE_*` environment prefix;
   server. Installed once, then managed with `agentbridge connect` / `doctor` /
   `status` / `project` / `skill` / `upgrade`; routine connects never refresh the
   install directory. `deepbox` remains a compatibility alias. A connector-only runtime registry builds and validates the
-  argv for Claude Code / Copilot CLI / Codex CLI / mock, and reports capabilities
+  argv for Claude Code / Copilot CLI / Codex CLI, and reports capabilities
   that stay opaque to the server and web UI.
 - `web/` — a refined, structured-first split workbench, not a dashboard or a new web
   framework. Top navigation and a compact collapsible sidebar frame independent

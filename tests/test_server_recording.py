@@ -38,9 +38,9 @@ class RecordingBaseCase(unittest.TestCase):
         self.agA = "ag-" + uuid.uuid4().hex
         self.agB = "ag-" + uuid.uuid4().hex
         self.db.add(models.Agent(id=self.agA, devbox_id=self.dbxA, handle="a",
-                          display_name="A"))
+                          display_name="A", runtime="codex-cli"))
         self.db.add(models.Agent(id=self.agB, devbox_id=self.dbxB, handle="b",
-                          display_name="B"))
+                          display_name="B", runtime="codex-cli"))
         # Raw foreign-key IDs do not establish ORM dependency edges, so flush
         # the parent rows before inserting the child while FK checks are on.
         self.db.flush()

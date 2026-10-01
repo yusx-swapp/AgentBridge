@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -618,22 +617,9 @@ def attachment_control(runtime_id: str) -> RuntimeControl | None:
 
 
 # ---------------------------------------------------------------------------
-# Built-in adapters: mock, Claude, Copilot, and Codex.
+# Built-in adapters: Claude, Copilot, and Codex.
 # Each adapter is self-contained so adding another runtime stays localized.
 # ---------------------------------------------------------------------------
-
-# The mock runtime launches the *current* interpreter; its argv[0] is an
-# absolute path (sys.executable), which is legitimately not a bare name, so it
-# is registered directly without the bare-name executable check that
-# :func:`register` would apply. All other adapters go through :func:`register`.
-_REGISTRY["mock"] = RuntimeAdapter(
-    id="mock",
-    label="Mock Agent",
-    base_argv=(sys.executable, "-u", "-m", "connector.mockcli"),
-    probe_hint=lambda: True,
-    family="mock", surface="terminal", default_surface=True,
-    version_argv=(), allow_custom_models=False,
-)
 
 from .integrations.deeporca.adapter import create_adapter as _deeporca_adapter
 

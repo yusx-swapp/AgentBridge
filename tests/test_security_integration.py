@@ -250,7 +250,7 @@ def test_classify_output_defers_durable_commit_until_commit_new():
     created = client.post("/api/devboxes", json={"name": "box"}).json()
     devbox_id = created["devbox"]["id"]
     agent = client.post(f"/api/devboxes/{devbox_id}/agents", json={
-        "handle": "shell", "display_name": "Shell", "runtime": "mock",
+        "handle": "shell", "display_name": "Shell", "runtime": "codex-cli",
     }).json()
     session_id = "twophase-session"
     with main.models.SessionLocal() as session:

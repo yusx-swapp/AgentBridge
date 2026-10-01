@@ -488,7 +488,7 @@ The server deduplicates on `(session_id, pty_instance_id, seq)` so retries never
 Runtimes are declared in the connector registry. Each `RuntimeAdapter` supplies a stable ID
 and label, family and surface, validated launch/model/permission metadata, probe hints,
 generic control definitions, and skill roots. Adding a runtime must not require a
-runtime-specific server or web branch. Built-in adapters are `mock`, `claude-code`,
+runtime-specific server or web branch. Built-in adapters are `claude-code`,
 `codex-cli`, `copilot-cli`, `claude-code-structured`, and `copilot-cli-structured`.
 The server stores capability blobs and checks generic lifecycle/context keys for
 Resume; the web renders their generic schema, without runtime-name branches.

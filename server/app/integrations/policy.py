@@ -3,7 +3,7 @@
 Policies validate already-authorized requests and format runtime metadata. They
 never import the application, access the database, queue input or send frames;
 the caller owns authorization, persistence and transport, in that order.
-The default deliberately retains the existing CLI/mock runtime behavior.
+The default deliberately retains the existing CLI runtime behavior.
 """
 from __future__ import annotations
 

@@ -41,7 +41,7 @@ def app_client(tmp_path, monkeypatch):
 def make_agent(client, name="local"):
     devbox = client.post("/api/devboxes", json={"name": name}).json()
     agent = client.post(f"/api/devboxes/{devbox['devbox']['id']}/agents", json={
-        "handle": name, "display_name": name, "runtime": "mock"}).json()
+        "handle": name, "display_name": name, "runtime": "codex-cli"}).json()
     return devbox, agent["id"]
 
 
@@ -358,7 +358,7 @@ def test_connector_rejects_wrong_agent_and_whole_mixed_snapshot(app_client):
     client, main = app_client
     box, agent_id = make_agent(client)
     second = client.post(f"/api/devboxes/{box['devbox']['id']}/agents", json={
-        "handle": "second", "display_name": "second", "runtime": "mock"}).json()["id"]
+        "handle": "second", "display_name": "second", "runtime": "codex-cli"}).json()["id"]
     sid = client.post(f"/api/agents/{agent_id}/sessions", json={"surface": "terminal"}).json()["id"]
     other_sid = client.post(f"/api/agents/{second}/sessions", json={"surface": "terminal"}).json()["id"]
     with patch.object(main.hub, "to_session_humans", new_callable=AsyncMock) as broadcast:

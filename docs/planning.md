@@ -1,7 +1,7 @@
 # AgentBridge — Roadmap and Current State
 
 > AgentBridge is an **agent switchboard / control plane**: it connects agent CLIs
-> (Claude Code, GitHub Copilot CLI, Codex CLI, and a `mock` runtime) running on a
+> (Claude Code, GitHub Copilot CLI, and Codex CLI) running on a
 > user's own devbox to a server, so users can log in and interact with them from a
 > browser. The server never runs models and never holds model credentials; intelligence
 > and secrets stay on the devbox.
@@ -66,7 +66,7 @@ Fleet-size validation (for example, 100 agents) is separate from a four-pane UI 
   Product/environment/home compatibility lives in `agentbridge/product.py`; old
   `.deepbox` and custom roots and persistent identities are not auto-migrated.
 - Runtime registry (`runtimes.py`) is connector-only: a shared builder constructs
-  and validates argv for Claude Code, Copilot CLI, Codex CLI, and `mock`; the
+  and validates argv for Claude Code, Copilot CLI, and Codex CLI; the
   server and web treat capabilities as opaque JSON.
 - Runtime probing (`runtime_probe.py`) reports installed runtimes, versions, and
   capability facts to the server on connect.

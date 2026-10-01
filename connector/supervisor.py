@@ -639,7 +639,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             })
             return
         info = dict(info)  # snapshot across asynchronous availability probing
-        configured_runtime = info.get("runtime", "mock")
+        configured_runtime = info.get("runtime")
         try:
             if surface:
                 if configured_runtime in runtimes.runtime_ids():

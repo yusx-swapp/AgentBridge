@@ -135,7 +135,7 @@ class LegacyBackfillTests(unittest.TestCase):
         conn.execute(
             "INSERT INTO devbox VALUES ('d3','u2','box3',NULL,NULL,NULL)")
         conn.execute(
-            "INSERT INTO agent VALUES ('a1','d1','h','A','mock',NULL,NULL,NULL,NULL)")
+            "INSERT INTO agent VALUES ('a1','d1','h','A','codex-cli',NULL,NULL,NULL,NULL)")
         conn.execute(
             "INSERT INTO session VALUES ('s1','u1','a1','T','30d',NULL)")
         conn.commit()

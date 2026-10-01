@@ -349,8 +349,7 @@ async def run_supervisor(server_url: str, token: str,
                          endpoint: str | None = None,
                          state_path: str | None = None) -> None:
     """Run a standalone sessiond that also bootstraps agents from the server."""
-    # Fail closed if the catalogue cannot be loaded. An empty catalogue would
-    # silently resolve real agent IDs to the mock runtime.
+    # Fail closed if the catalogue cannot be loaded.
     local_store = open_local_store(state_path)
     try:
         bootstrap = Connector(server_url, token, local_store=local_store)

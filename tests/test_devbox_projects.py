@@ -140,6 +140,6 @@ def test_project_report_rejects_paths_and_cross_devbox_project_ids():
 
         invalid_agent = client.post(
             f"/api/devboxes/{second['id']}/agents",
-            json={"handle": "bad", "runtime": "mock",
+            json={"handle": "bad", "runtime": "codex-cli",
                   "local_project_id": "shared-id"})
         assert invalid_agent.status_code == 422

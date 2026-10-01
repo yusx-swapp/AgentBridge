@@ -22,9 +22,10 @@ def test_registry_ids_are_unique():
 
 
 def test_expected_runtimes_registered():
-    for rid in ("mock", "claude-code", "copilot-cli", "codex-cli"):
+    for rid in ("claude-code", "copilot-cli", "codex-cli"):
         assert runtimes.has(rid)
         assert runtimes.get(rid).id == rid
+    assert not runtimes.has("mock")
 
 
 def test_surface_lookup_accepts_family_and_legacy_adapter_ids():
@@ -49,7 +50,6 @@ def test_adapter_declares_personal_and_project_skill_roots(tmp_path, monkeypatch
     assert any(path.endswith("/.claude/skills") for path in project)
     assert any(path.endswith("/.agents/skills") for path in project)
     assert claude.capabilities(installed=True)["features"]["skills"] is True
-    assert runtimes.get("mock").skill_roots() == ()
 
 
 def test_register_rejects_duplicate():
@@ -74,11 +74,6 @@ def test_build_command_unknown_runtime_fails():
 # ---------------------------------------------------------------------------
 # Exact command argv per runtime / model / permission mode
 # ---------------------------------------------------------------------------
-
-def test_mock_base_command_uses_current_interpreter():
-    assert runtimes.build_command("mock") == [
-        sys.executable, "-u", "-m", "connector.mockcli"]
-
 
 def test_claude_default_is_base_argv():
     # No model / permission -> exactly the historical base command.
@@ -193,12 +188,10 @@ def test_adding_adapter_is_localized():
 # ---------------------------------------------------------------------------
 
 def test_resolve_cmd_defaults_preserved():
-    assert resolve_cmd("mock", None) == [
-        sys.executable, "-u", "-m", "connector.mockcli"]
     assert resolve_cmd("claude-code", None) == ["claude"]
 
 
-def test_resolve_cmd_unknown_runtime_raises_instead_of_launching_mock():
+def test_resolve_cmd_unknown_runtime_raises():
     with pytest.raises(runtimes.UnknownRuntimeError):
         resolve_cmd("bogus", None)
 
@@ -368,4 +361,4 @@ class TestNativeContextContinuity:
                     "claude-code-structured", {}, session_id=hostile)
 
     def test_runtimes_without_context_support_ignore_session_ids(self):
-        assert runtimes.control_argv("mock", {}, session_id="abc") == []
+        assert runtimes.control_argv("codex-cli", {}, session_id="abc") == []
