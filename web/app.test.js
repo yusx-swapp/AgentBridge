@@ -74,6 +74,24 @@ test('the agentbridge shell starts empty and does not pre-create or connect agen
   h.app.destroy();
 });
 
+test('agent row expands to live sessions and opens the chosen one', async()=>{
+  const h=harness(); await h.app.start();
+  h.override(url=>url==='/api/agents/a1/sessions'?[
+    {id:'s2',agent_id:'a1',title:'Second',surface:'structured',state:'live',created_at:'2026-01-01T10:00:00'},
+    {id:'s1',agent_id:'a1',title:'Old',surface:'structured',state:'ended',created_at:'2026-01-01T09:00:00'}]:undefined);
+  h.root.querySelector('[data-agent-sessions="a1"]').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const rows=h.root.querySelectorAll('[data-open-session]');
+  assert.equal(rows.length,1);
+  assert.match(rows[0].textContent,/Second/);
+  rows[0].click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  h.sockets[0].open();
+  assert.equal(h.sockets[0].frames[0].type,'attach');
+  assert.equal(h.sockets[0].frames[0].session_id,'s2');
+  h.app.destroy();
+});
+
 test('opening an agent delegates to its pane and workspace switch detaches it, not the agent', async()=>{
   const h=harness(); await h.app.start();
   await h.app.openAgent('a1','structured');
