@@ -62,7 +62,7 @@
     let nativeSubmission = null;
     let recording = null;
     let nodes = {}, listeners = [];
-    let sessionCards = [], sessionActionPending = false;
+    let sessionCards = [], sessionActionPending = false, sessionCardSeq = 0;
     const readers = new Set();
     const observeTitle = (workspaceId, sessionId, title) => {
       if (workspaceId === targetWorkspace) updateSessionTitle(sessionId, title);
@@ -1060,6 +1060,18 @@
       const session = { ...metadata }, view = epoch, agentId = target.agentId, sessionId = String(session.id);
       const row = element('div', history ? 'history-item' : 'session-header', history ? 'history-item pane-session-card' : 'pane-session-card');
       const title = element('b', 'session-title', 'session-title');
+      // Collapsed by default: title + state stay visible; the toggle reveals the unchanged details.
+      const state = element('span', 'session-state', 'pane-session-state');
+      const details = element('div', 'session-details', 'pane-session-details');
+      details.id = namespace + '-session-details-' + (++sessionCardSeq);
+      details.hidden = true;
+      const toggle = button('session-details-toggle', 'Details', () => {
+        details.hidden = !details.hidden;
+        toggle.setAttribute('aria-expanded', String(!details.hidden));
+      });
+      toggle.className = 'ghost pane-session-toggle';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-controls', details.id);
       const detail = element('span', 'session-detail', 'muted');
       const actions = element('div', null, 'pane-session-actions');
       const reason = element('span', 'session-action-reason', 'muted');
@@ -1142,9 +1154,12 @@
       actions.appendChild(rename);
       if (continuation) actions.appendChild(continuation);
       if (navigation) actions.appendChild(action);
-      row.append(title, detail, actions, edit, reason, error);
+      details.append(detail, actions, edit, reason);
+      row.append(title, state, toggle, details, error);
       const card = { session, sync() {
         title.textContent = sessionTitle(session);
+        state.textContent = session.state || 'unknown';
+        state.setAttribute('data-state', session.state || 'unknown');
         detail.textContent = sessionId + ' · ' + (session.surface === 'structured' ? 'Chat' : session.surface === 'terminal' ? 'Terminal' : 'Legacy surface unknown')
           + ' · ' + (session.state || 'unknown') + (session.created_at ? ' · started ' + session.created_at : '');
         edit.hidden = !editing; rename.hidden = editing;
