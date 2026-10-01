@@ -44,7 +44,7 @@
     let prefixPending = false, commandOpen = false, commandReturnFocus = null, consumedKey = null;
     const savedSidebar=readPref('sidebar');
     let sidebarClosed=savedSidebar ? savedSidebar==='closed' : !!window.matchMedia?.('(max-width:680px)').matches;
-    let query='', tmuxEnabled=readPref('shortcuts')==='tmux';
+    let query='', tmuxEnabled=readPref('shortcuts')==='tmux', expanded=null, liveSessions=null;
     let theme = readPref('theme', 'deepbox.theme') === 'light' ? 'light' : 'dark';
     let pendingInvite = null, accountInvite = '';
     const inviteKey = 'agentbridge.pendingWorkspaceInvitation';
@@ -133,7 +133,7 @@
         renderShell();
         if(poll) pollTimer = window.setInterval(()=>{
           const scope=epoch;
-          refresh().catch(error=>{
+          refresh().then(()=>expanded && loadSessions(expanded)).catch(error=>{
             if(dead || scope!==epoch) return;
             if(error.status === 401 || error.status === 403) start();
             else notice('Catalog unavailable; existing sessions are independent.');
@@ -313,7 +313,7 @@
 
     function renderSidebar(){
       const list=by('machine-list');if(!list)return;
-      const selected=bench?.getActive()?.getState().agentId;
+      const active=bench?.getActive()?.getState(), selected=active?.agentId;
       const visible=UI.filterDevboxes(boxes(),query), totals=UI.fleetSummary(boxes());
       by('catalog-status').textContent=totals.devboxOnline+'/'+totals.devboxTotal;
       by('catalog-status').title=totals.devboxOnline+' machines online';
@@ -321,11 +321,17 @@
         <header class="machine-heading"><span class="connection-dot" data-state="${box.online?'online':'offline'}" title="${box.online?'Online':'Offline'}"></span><span>${esc(box.name)}</span><button class="icon-button" data-machine-menu="${esc(box.id)}" aria-label="Actions for ${esc(box.name)}" title="Machine actions">${ICONS.more}</button></header>
         <div class="agent-list">${(box.agents||[]).map(agent=>{
           const state=UI.agentStatus(agent);
-          return `<div class="agent-row${selected===agent.id?' is-selected':''}"><button class="agent-open" data-open-agent="${esc(agent.id)}" title="${esc(agent.display_name||agent.handle)}"><span class="agent-mark">${ICONS.agent}</span><span class="agent-handle">${esc(agent.display_name||agent.handle)}<small>@${esc(agent.handle)}</small></span><span class="connection-dot" data-state="${state.state}" title="${esc(state.label)}"></span></button><button class="icon-button agent-menu" data-agent-menu="${esc(agent.id)}" aria-label="Actions for ${esc(agent.handle)}" title="Agent actions">${ICONS.more}</button></div>`;
+          return `<div class="agent-row${selected===agent.id?' is-selected':''}"><button class="agent-open" data-open-agent="${esc(agent.id)}" title="${esc(agent.display_name||agent.handle)}"><span class="agent-mark">${ICONS.agent}</span><span class="agent-handle">${esc(agent.display_name||agent.handle)}<small>@${esc(agent.handle)}</small></span><span class="connection-dot" data-state="${state.state}" title="${esc(state.label)}"></span></button><button class="icon-button agent-sessions-toggle" data-agent-sessions="${esc(agent.id)}" aria-expanded="${expanded===agent.id}" aria-label="Live sessions for ${esc(agent.handle)}" title="Live sessions">${ICONS.chevron}</button><button class="icon-button agent-menu" data-agent-menu="${esc(agent.id)}" aria-label="Actions for ${esc(agent.handle)}" title="Agent actions">${ICONS.more}</button></div>`
+            +(expanded===agent.id && liveSessions ? `<div class="agent-sessions">${liveSessions.map(session=>`<button class="agent-session${active?.sessionId===session.id?' is-selected':''}" data-open-session="${esc(session.id)}">${esc((session.title||'Session')+' · '+new Date(session.created_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))}</button>`).join('')||'<p class="group-empty">No live sessions</p>'}</div>` : '');
         }).join('')||'<p class="group-empty">No agents yet</p>'}</div>
       </section>`).join('') : `<div class="sidebar-empty"><p>${query?'No matching agents.':'Connect a machine to bring your agents here.'}</p>${!query&&canManage()?'<button class="ghost" data-connect-empty>Connect machine</button>':''}</div>`;
       list.querySelectorAll('[data-open-agent]').forEach(button=>button.onclick=()=>openAgent(button.dataset.openAgent));
       list.querySelectorAll('[data-agent-menu]').forEach(button=>button.onclick=()=>agentMenu(button.dataset.agentMenu,button));
+      list.querySelectorAll('[data-agent-sessions]').forEach(button=>button.onclick=()=>toggleSessions(button.dataset.agentSessions));
+      list.querySelectorAll('[data-open-session]').forEach(button=>button.onclick=()=>{
+        const session=liveSessions.find(item=>item.id===button.dataset.openSession), found=findAgent(expanded);
+        if(session && found) bench?.open({kind:'live',agentId:expanded,sessionId:session.id,surface:session.surface,title:found.agent.display_name||found.agent.handle});
+      });
       list.querySelectorAll('[data-machine-menu]').forEach(button=>button.onclick=()=>machineMenu(button.dataset.machineMenu,button));
       list.querySelector('[data-connect-empty]')?.addEventListener('click',()=>management.createMachine());
     }
@@ -367,7 +373,7 @@
     }
 
     function resetWorkbench(){
-      bench?.close(); bench = null;
+      bench?.close(); bench = null; expanded = null;
       const area = by('workspace-area'); if(!area) return;
       area.replaceChildren();
       if(!workspace()){
@@ -448,6 +454,18 @@
       const found=findAgent(id); if(!found || !bench) return;
       if(!found.box.online) return bench.open({kind:'history',agentId:id,title:found.agent.display_name||found.agent.handle});
       return bench.open({kind:'live',agentId:id,surface:surface||defaultSurface(id),title:found.agent.display_name||found.agent.handle});
+    }
+    function toggleSessions(id){
+      expanded=expanded===id ? null : id; liveSessions=null; renderSidebar();
+      if(expanded) return loadSessions(expanded);
+    }
+    async function loadSessions(id){
+      const scope=epoch;
+      try {
+        const sessions=await api(UI.agentApiPath(id)+'/sessions');
+        if(dead || scope!==epoch || expanded!==id) return;
+        liveSessions=sessions.filter(session=>session.state==='live'); renderSidebar();
+      } catch(error) { if(!dead && scope===epoch) notice(error.message||'Live sessions unavailable.'); }
     }
     function agentTargets(){
       const targets=[];

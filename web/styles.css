@@ -92,6 +92,13 @@ svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-wi
 .agent-handle small{font:9px/13px var(--mono);color:var(--muted);font-weight:400;opacity:.9}
 .agent-menu{width:20px;height:22px;opacity:0;margin-right:5px}
 .agent-row:hover .agent-menu,.agent-row:focus-within .agent-menu{opacity:.85}
+.agent-sessions-toggle{width:20px;height:22px;opacity:.6}
+.agent-sessions-toggle[aria-expanded="false"] svg{transform:rotate(-90deg)}
+.agent-sessions{margin:0 0 4px 36px}
+.agent-session{display:block;width:100%;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:11px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-session:hover{background:var(--hover);color:var(--fg)}
+.agent-session.is-selected{background:var(--selected);color:var(--fg)}
+.agent-sessions .group-empty{padding:4px 8px}
 .connection-dot{display:inline-block;flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);opacity:.5}
 .connection-dot[data-state="online"],.connection-dot[data-state="idle"]{background:var(--good);opacity:.85}
 .connection-dot[data-state="busy"]{background:var(--warn);opacity:1}
