@@ -127,6 +127,14 @@ class PersistTests(RecordingBaseCase):
             self.db, devbox_id=self.dbxA,
             frame=_frame(self.sid, self.pty, 3, "c")).outcome, NEW)
 
+    def test_frontier_is_per_pty_stream(self):
+        for pty, seq in (("ptyA", 1), ("ptyA", 2), ("ptyB", 1)):
+            self.store.persist_output(self.db, devbox_id=self.dbxA,
+                                      frame=_frame(self.sid, pty, seq, "x"))
+        r = self.store.persist_output(self.db, devbox_id=self.dbxA,
+                                      frame=_frame(self.sid, "ptyB", 3, "z"))
+        self.assertEqual((r.outcome, r.expected_seq), (GAP, 2))
+
     def test_ownership_rejected_across_devboxes(self):
         r = self.store.persist_output(self.db, devbox_id=self.dbxB,
                                       frame=_frame(self.sid, self.pty, 1, "hi"))
@@ -333,6 +341,33 @@ class CheckpointTests(RecordingBaseCase):
             if cp:
                 made.append(cp.event_index)
         self.assertEqual(made, [3, 6])
+
+    def test_cadence_spans_ptys_and_survives_checkpoint_loss(self):
+        store = RecordingStore(checkpoint_interval=3)
+        made = []
+        for n in range(1, 10):
+            if n == 5:  # e.g. secure erase / retention removed checkpoints
+                self.db.query(models.RecordingCheckpoint).delete()
+                self.db.commit()
+            r = store.persist_output(
+                self.db, devbox_id=self.dbxA,
+                frame=_frame(self.sid, f"pty{n % 2}", (n + 1) // 2, f"d{n}"))
+            cp = store.maybe_checkpoint(self.db, self.sid, frame=r.frame,
+                                        screen_fn=lambda: "S")
+            if cp:
+                made.append(cp.event_index)
+        self.assertEqual(made, [3, 6, 9])
+
+    def test_cadence_ignores_checkpoints_without_event_ordinals(self):
+        store = RecordingStore(checkpoint_interval=3)
+        rows = self._seed(6)
+        for index in (2, 5):
+            store.checkpoint(self.db, self.sid, frame_id=rows[index - 1].id,
+                             screen="manual")
+            cp = store.maybe_checkpoint(self.db, self.sid, frame=rows[index],
+                                        screen_fn=lambda: "S")
+            self.assertIsNotNone(cp)
+            self.assertEqual(cp.event_index, index + 1)
 
     def test_multiple_pty_streams_disambiguated(self):
         # Two interleaved pty streams: checkpoint frame_id is unambiguous.

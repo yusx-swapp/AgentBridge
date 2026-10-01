@@ -18,6 +18,8 @@ import shlex
 from . import runtimes
 
 IS_WIN = sys.platform == "win32"
+# Reads return what is already buffered, so bursts become fewer frames.
+READ_BYTES = 16 * 1024
 
 
 def resolve_cmd(runtime: str, launch_cmd: str | None,
@@ -92,7 +94,7 @@ class PtySession:
                 try:
                     # pywinpty exposes a blocking read; kill() also shuts down
                     # its reader socket so no executor read remains parked.
-                    data = await asyncio.to_thread(proc.read, 4096)
+                    data = await asyncio.to_thread(proc.read, READ_BYTES)
                 except EOFError:
                     break
                 if data:
@@ -210,7 +212,7 @@ class PtySession:
             # recycled descriptor, nor leave a blocking executor read behind.
             if self._fd != fd or self._killed:
                 return b""
-            return os.read(fd, 4096)
+            return os.read(fd, READ_BYTES)
         finally:
             if self._fd == fd:
                 self._loop.remove_reader(fd)

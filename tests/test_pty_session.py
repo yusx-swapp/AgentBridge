@@ -52,7 +52,7 @@ class _WinPty:
         self._thread = SimpleNamespace(join=Mock())
 
     def read(self, size):
-        assert size == 4096
+        assert size == P.READ_BYTES
         self.read_started.set()
         chunk = self.chunks.get(timeout=2)
         if isinstance(chunk, EOFError):
