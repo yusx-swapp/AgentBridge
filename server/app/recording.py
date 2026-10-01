@@ -143,24 +143,17 @@ def _parse_timestamp(value):
 
 
 def _highest_contiguous(db, session_id: str, pty_instance_id: str) -> int:
-    """Return the highest seq S such that 1..S are all present (0 if none)."""
-    seqs = db.scalars(
-        select(models.RecordingFrame.seq)
-        .where(
+    """Return the highest seq S such that 1..S are all present (0 if none).
+
+    Stored seqs are contiguous (only ``frontier + 1`` is accepted and rows are
+    deleted only with their session), so the indexed MAX is the frontier.
+    """
+    return db.scalar(
+        select(func.max(models.RecordingFrame.seq)).where(
             models.RecordingFrame.session_id == session_id,
             models.RecordingFrame.pty_instance_id == pty_instance_id,
         )
-        .order_by(models.RecordingFrame.seq)
-    ).all()
-    expected = 0
-    for s in seqs:
-        if s == expected + 1:
-            expected = s
-        elif s <= expected:
-            continue
-        else:
-            break
-    return expected
+    ) or 0
 
 
 class RecordingStore:
@@ -453,14 +446,24 @@ class RecordingStore:
         if (self.checkpoint_interval <= 0 or frame is None or
                 frame.redacted_at is not None):
             return None
-        # Count committed, non-redacted frames up to and including this one to
-        # derive a stable event ordinal and cadence.
-        count = db.scalar(
+        # Event ordinal = session frames (all ptys, redacted included) up to
+        # this one. Checkpoints with an unset ordinal (0) cannot be anchors.
+        since_id, base = db.execute(
+            select(models.RecordingCheckpoint.frame_id,
+                   models.RecordingCheckpoint.event_index)
+            .where(models.RecordingCheckpoint.session_id == session_id,
+                   models.RecordingCheckpoint.frame_id < frame.id,
+                   models.RecordingCheckpoint.event_index > 0)
+            .order_by(models.RecordingCheckpoint.frame_id.desc())
+            .limit(1)
+        ).first() or (0, 0)
+        count = base + (db.scalar(
             select(func.count()).select_from(models.RecordingFrame).where(
                 models.RecordingFrame.session_id == session_id,
+                models.RecordingFrame.id > since_id,
                 models.RecordingFrame.id <= frame.id,
             )
-        ) or 0
+        ) or 0)
         if count % self.checkpoint_interval != 0:
             return None
         return self.checkpoint(

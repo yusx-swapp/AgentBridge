@@ -214,6 +214,11 @@ Durable recording lives in two tables:
 - **`recording_checkpoint`** — periodic full terminal-screen snapshots that bound
   how much output must be replayed to seek to a point in time.
 
+Stored sequences are contiguous per PTY, so the frontier uses indexed `MAX(seq)`.
+Checkpoint ordinals count all session frames, including redacted ones, starting
+from an earlier checkpoint with a positive `event_index`. If none exists, the
+ordinal is counted from the start.
+
 Persistence is split into a pure in-memory `classify_output()` (reads the ledger
 and returns NEW / DUPLICATE / GAP / CONFLICT / INVALID, building an uncommitted
 `RecordingFrame` for NEW) and a durable `commit_new()` (`db.add` + `db.commit`,
