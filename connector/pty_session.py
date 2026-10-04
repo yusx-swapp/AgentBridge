@@ -39,6 +39,25 @@ def resolve_cmd(runtime: str, launch_cmd: str | None,
                                   permission_mode=permission_mode)
 
 
+def append_launch_args(cmd, runtime_id, extra_args):
+    lexer = shlex.shlex(extra_args, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    if IS_WIN:
+        lexer.escape = ""
+    args = list(lexer)
+    # Structured transport and native context identity belong to AgentBridge.
+    protected = {"-p", "--prompt", "--resume", "--session-id", "--continue",
+                 "-c", "-r", "--fork-session", "--output-format", "--input-format",
+                 "--stream", "--include-partial-messages", "--verbose"}
+    if runtimes.get(runtime_id).structured and any(
+            arg.split("=")[0] in protected or
+            (arg.startswith(("-p", "-r", "-c")) and not arg.startswith("--"))
+            for arg in args):
+        raise runtimes.InvalidCommandError("Structured session transport/context flags cannot be overridden")
+    return runtimes.validate_argv(cmd + args, allow_backslashes=IS_WIN)
+
+
 
 class PtySession:
     def __init__(self, cmd: list[str], cwd: str | None, on_output, on_exit,

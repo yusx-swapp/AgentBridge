@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from agentbridge.launch_options import validate_launch_options
 
 if TYPE_CHECKING:
     from ..models import Agent, Session
@@ -51,11 +52,17 @@ class RuntimePolicy:
 
         The platform checks active conversations before applying a returned
         config and calls initialize_agent only when the desired revision changes.
-        Ordinary runtimes retain their display-only update behavior.
+        Ordinary runtimes may also change defaults for future CLI sessions.
         """
-        if self.identity_fields & body.keys():
+        if (self.identity_fields - {"runtime_config"}) & body.keys():
             raise HTTPException(422, "this endpoint only supports display renames")
         self.validate_update_fields(body)
+        if "runtime_config" in body:
+            try:
+                options = validate_launch_options(body["runtime_config"])
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
+            return {**(agent.runtime_config or {}), **options}
         return None
 
     def validate_update_fields(self, body: dict) -> None:

@@ -829,18 +829,33 @@ test('DeepOrca retry is offered only for repairable states, with safe codes and 
   }
 });
 
-test('DeepOrca settings deny nonmanagers, other-workspace Agents and all CLI Agents', async t=>{
-  for(const variant of ['operator','viewer','wrong workspace','CLI','missing']){
+test('Agent settings deny nonmanagers and other-workspace Agents', async t=>{
+  for(const variant of ['operator','viewer','wrong workspace','missing']){
     await t.test(variant,async()=>{
       const h=deeporcaHarness();
       if(['operator','viewer'].includes(variant)) h.ctx.workspace.role=variant;
       if(variant==='wrong workspace') h.box.workspace_id='other';
-      if(variant==='CLI') h.agent.runtime='cli';
       if(variant==='missing') h.box.agents=[];
       await h.open();assert.equal(h.root(),null);assert.equal(h.refreshes,0);assert.equal(h.calls.length,0);
     });
+
   }
   const h=deeporcaHarness({role:'admin'});await h.open();assert.ok(h.field());
+});
+
+test('CLI Agent defaults save without starting a session', async()=>{
+  const h=harness(), box=h.ctx.devboxes[0], agent=box.agents[0];
+  agent.runtime='claude'; agent.runtime_config={permission_mode:'plan',extra_args:'--model sonnet'};
+  box.capabilities.runtimes[0].surfaces=[{id:'terminal',default:true,features:{permission_modes:['','plan','bypassPermissions']}}];
+  h.apiHook=(path,options)=>options.method==='PATCH'?{}:h.defaultApi(path,options);
+  h.management.agentSettings('a1'); await flush();
+  const root=h.root();
+  assert.equal(root.querySelector('[data-field="permission_mode"]').value,'plan');
+  change(root.querySelector('[data-field="permission_mode"]'),'bypassPermissions');
+  root.querySelector('[data-field="extra_args"]').value='--model opus';
+  submit(root);await flush();
+  assert.deepEqual(h.mutations()[0].body.runtime_config,{permission_mode:'bypassPermissions',extra_args:'--model opus'});
+  assert.equal(h.mutations().length,1);
 });
 
 test('DeepOrca writes recheck workspace, identity, role, epoch and Agent ownership before HTTP', async t=>{

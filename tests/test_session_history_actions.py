@@ -33,7 +33,7 @@ def _history(client, main, *, historical=True, surface="structured"):
         agent.runtime_config = {"native_context_id": NATIVE_MARKER}
         db.get(main.Devbox, box["devbox"]["id"]).capabilities = [{
             "runtime": "fake-runtime", "surfaces": [{"id": "structured", "features": {
-                "session_lifecycle": 1, "context": {"continuity": "native_resume",
+                "session_lifecycle": 1, "launch_options": 1, "context": {"continuity": "native_resume",
                 "available": True, "explicit_resume": True}}}]}]
         db.commit()
     response = client.post(f"/api/agents/{aid}/sessions", json={"surface": surface})
@@ -138,6 +138,75 @@ def test_history_json_permissions_generic_capability_and_missing_recording(app_c
         assert visible["resume_supported"] is True
         assert visible["can_resume"] is False
         assert visible["resume_reason"]
+
+
+def test_defaults_are_snapshotted_and_resume_options_are_session_local(app_client):
+    client, main = app_client
+    box, aid, session = _history(client, main)
+    defaults = {"permission_mode": "plan", "extra_args": "--model sonnet"}
+    assert client.patch(f"/api/agents/{aid}", json={"runtime_config": defaults}).status_code == 200
+    created = client.post(f"/api/agents/{aid}/sessions", json={"surface": "structured"}).json()
+    assert created["launch_options"] == defaults
+    sid = session["id"]
+    options = {"permission_mode": "bypassPermissions", "extra_args": "--model opus"}
+    with _connector(client, box) as connector, client.websocket_connect("/ws/term", headers=ORIGIN) as human:
+        frames = _human_frames(human, {"type": "resume", "session_id": sid,
+            "launch_id": session["launch_id"], "launch_options": options})
+        assert _one(frames, "status")["state"] == "starting"
+        launch = _one(_commands(_connector_frames(connector)), "resume")
+        assert launch["launch_options"] == options
+        _connector_frames(connector, _ready(launch))
+        _human_frames(human, {"type": "attach", "session_id": sid, "launch_options": defaults})
+        assert not _commands(_connector_frames(connector))
+        assert _current(client, sid)["launch_options"] == options
+        assert _current(client, created["id"])["launch_options"] == defaults
+        assert client.patch(f"/api/agents/{aid}", json={"runtime_config": {"extra_args": ""}}).status_code == 200
+        assert _current(client, sid)["launch_options"] == options
+
+
+def test_delete_session_requires_admin_and_removes_only_selected_history(app_client):
+    client, main = app_client
+    box, aid, session = _history(client, main)
+    sid = session["id"]
+    other = client.post(f"/api/agents/{aid}/sessions", json={"surface": "structured"}).json()["id"]
+    live = main.live_registry.get_or_create(sid)
+    live.feed_output("recorded text")
+    cast = live.cast_path
+    viewer, _ = add_member(client, main, sid, "viewer")
+    assert viewer.delete(f"/api/sessions/{sid}").status_code in (403, 404)
+    assert client.delete(f"/api/sessions/{sid}").status_code == 409
+    assert cast.exists()
+    with _connector(client, box) as connector:
+        assert client.delete(f"/api/sessions/{sid}").status_code == 200
+        assert _one(_commands(_connector_frames(connector)), "terminate")["session_id"] == sid
+    assert client.get(f"/api/sessions/{sid}").status_code == 404
+    assert not cast.exists()
+    assert _current(client, other)["id"] == other
+
+
+def test_old_connector_cannot_silently_ignore_launch_options(app_client):
+    client, main = app_client
+    box, aid, session = _history(client, main)
+    sid = session["id"]
+    with main.models.SessionLocal() as db:
+        devbox = db.get(main.Devbox, box["devbox"]["id"])
+        capabilities = deepcopy(devbox.capabilities)
+        del capabilities[0]["surfaces"][0]["features"]["launch_options"]
+        devbox.capabilities = capabilities
+        db.commit()
+    with _connector(client, box) as connector, client.websocket_connect("/ws/term", headers=ORIGIN) as human:
+        frames = _human_frames(human, {"type": "resume", "session_id": sid,
+            "launch_id": session["launch_id"], "launch_options": {"permission_mode": "", "extra_args": ""}})
+        assert _one(frames, "error")["code"] == "invalid_launch_options"
+        assert not _commands(_connector_frames(connector))
+    assert _current(client, sid)["launch_id"] == session["launch_id"]
+
+
+@pytest.mark.parametrize("options", [[], {"extra_args": ["--foo"]}, {"extra_args": "x\nx"}, {"credential": "x"}])
+def test_session_launch_options_reject_invalid_contract(app_client, options):
+    client, main = app_client
+    _, aid = make_agent(client)
+    assert client.post(f"/api/agents/{aid}/sessions", json={"launch_options": options}).status_code == 422
 
 
 @pytest.mark.parametrize("title", ["x", "界" * 120, '研究 <img src=x onerror="alert(1)"> & 😀'],

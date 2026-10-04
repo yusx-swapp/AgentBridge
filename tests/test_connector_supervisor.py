@@ -73,6 +73,38 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(durable_types, ["output"])
 
+    async def test_session_launch_options_override_defaults_without_mutating_agent(self):
+        from connector.pty_session import resolve_cmd
+        config = {"permission_mode": "plan", "extra_args": "--model sonnet"}
+        sup = SessionSupervisor({"a": {"runtime": "claude-code", "runtime_config": config}})
+        with mock.patch.object(supervisor_mod, "resolve_cmd", resolve_cmd):
+            await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "one",
+                "surface": "terminal", "launch_id": "first",
+                "launch_options": {"permission_mode": "bypassPermissions", "extra_args": "--model opus"}})
+            self.assertIn(("a", "one"), sup.ptys, sup.pending)
+            self.assertEqual(sup.ptys[("a", "one")].cmd,
+                             ["claude", "--dangerously-skip-permissions", "--model", "opus"])
+            await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "two",
+                "surface": "terminal", "launch_options": {"permission_mode": "", "extra_args": ""}})
+            self.assertEqual(sup.ptys[("a", "two")].cmd, ["claude"])
+        self.assertEqual(config, {"permission_mode": "plan", "extra_args": "--model sonnet"})
+        sup.shutdown()
+
+    async def test_invalid_launch_arguments_fail_without_spawning(self):
+        sup = SessionSupervisor({"a": {"runtime": "claude-code"}})
+        await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "bad",
+            "surface": "structured", "launch_options": {"extra_args": "--resume another-session"}})
+        self.assertNotIn(("a", "bad"), sup.ptys)
+        self.assertTrue(any(f.get("code") == "invalid_launch_options" for f in sup.pending))
+        sup.shutdown()
+
+    def test_extra_arguments_preserve_quoted_windows_paths(self):
+        from connector import pty_session
+        with mock.patch.object(pty_session, "IS_WIN", True):
+            cmd = pty_session.append_launch_args(["claude"], "claude-code",
+                r'--add-dir "C:\work folder\project"')
+        self.assertEqual(cmd, ["claude", "--add-dir", r"C:\work folder\project"])
+
     async def test_agents_frame_refreshes_directory_for_hot_added_agent(self):
         # Agent 'b' does not exist at startup; a pushed 'agents' frame should
         # make it resolvable so a subsequent open uses its runtime.

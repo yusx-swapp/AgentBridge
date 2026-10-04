@@ -322,16 +322,28 @@
         <div class="agent-list">${(box.agents||[]).map(agent=>{
           const state=UI.agentStatus(agent);
           return `<div class="agent-row${selected===agent.id?' is-selected':''}"><button class="agent-open" data-open-agent="${esc(agent.id)}" title="${esc(agent.display_name||agent.handle)}"><span class="agent-mark">${ICONS.agent}</span><span class="agent-handle">${esc(agent.display_name||agent.handle)}<small>@${esc(agent.handle)}</small></span><span class="connection-dot" data-state="${state.state}" title="${esc(state.label)}"></span></button><button class="icon-button agent-sessions-toggle" data-agent-sessions="${esc(agent.id)}" aria-expanded="${expanded===agent.id}" aria-label="Live sessions for ${esc(agent.handle)}" title="Live sessions">${ICONS.chevron}</button><button class="icon-button agent-menu" data-agent-menu="${esc(agent.id)}" aria-label="Actions for ${esc(agent.handle)}" title="Agent actions">${ICONS.more}</button></div>`
-            +(expanded===agent.id && liveSessions ? `<div class="agent-sessions">${liveSessions.map(session=>`<button class="agent-session${active?.sessionId===session.id?' is-selected':''}" data-open-session="${esc(session.id)}">${esc((session.title||'Session')+' · '+new Date(session.created_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))}</button>`).join('')||'<p class="group-empty">No live sessions</p>'}</div>` : '');
+            +(expanded===agent.id ? `<div class="agent-sessions">${UI.canAdminWorkspace(workspace()?.role)||workspace()?.role==='operator' ? `<button class="ghost compact" data-new-session="${esc(agent.id)}">+ New session</button>` : ''}
+              ${liveSessions ? liveSessions.map(session=>`<div class="agent-session-row"><button class="agent-session${active?.sessionId===session.id?' is-selected':''}" data-open-session="${esc(session.id)}">${esc(session.title||'Session')}<small>${esc(session.state)}</small></button><button class="icon-button" data-session-menu="${esc(session.id)}" aria-label="Actions for ${esc(session.title||'Session')}">${ICONS.more}</button></div>`).join('')||'<p class="group-empty">No sessions</p>' : '<p class="group-empty">Loading…</p>'}</div>` : '');
         }).join('')||'<p class="group-empty">No agents yet</p>'}</div>
       </section>`).join('') : `<div class="sidebar-empty"><p>${query?'No matching agents.':'Connect a machine to bring your agents here.'}</p>${!query&&canManage()?'<button class="ghost" data-connect-empty>Connect machine</button>':''}</div>`;
-      list.querySelectorAll('[data-open-agent]').forEach(button=>button.onclick=()=>openAgent(button.dataset.openAgent));
+      list.querySelectorAll('[data-open-agent]').forEach(button=>button.onclick=()=>toggleSessions(button.dataset.openAgent));
       list.querySelectorAll('[data-agent-menu]').forEach(button=>button.onclick=()=>agentMenu(button.dataset.agentMenu,button));
       list.querySelectorAll('[data-agent-sessions]').forEach(button=>button.onclick=()=>toggleSessions(button.dataset.agentSessions));
       list.querySelectorAll('[data-open-session]').forEach(button=>button.onclick=()=>{
         const session=liveSessions.find(item=>item.id===button.dataset.openSession), found=findAgent(expanded);
-        if(session && found) bench?.open({kind:'live',agentId:expanded,sessionId:session.id,surface:session.surface,title:found.agent.display_name||found.agent.handle});
+        if(session && found) bench?.open({kind:session.state==='live'?'live':'replay',agentId:expanded,sessionId:session.id,surface:session.surface,title:session.title});
       });
+      list.querySelectorAll('[data-new-session]').forEach(button=>button.onclick=()=>{
+        const id=button.dataset.newSession, found=findAgent(id);
+        const capability=UI.findRuntimeCapability(found.box.capabilities,found.agent.runtime);
+        const surfaces=UI.isCapabilityV2(capability) ? UI.capabilitySurfaces(capability).filter(s=>s.available).map(s=>s.id) : [defaultSurface(id)];
+        scopedMenu(button,surfaces.map(surface=>({label:surface==='structured'?'New chat session':'New terminal session',
+          disabled:!found.box.online,action:async()=>{
+            await bench?.open({kind:'live',agentId:id,surface,forceNew:true});
+            if(expanded===id) await loadSessions(id);
+          }})));
+      });
+      list.querySelectorAll('[data-session-menu]').forEach(button=>button.onclick=()=>sessionMenu(button.dataset.sessionMenu,button));
       list.querySelectorAll('[data-machine-menu]').forEach(button=>button.onclick=()=>machineMenu(button.dataset.machineMenu,button));
       list.querySelector('[data-connect-empty]')?.addEventListener('click',()=>management.createMachine());
     }
@@ -384,6 +396,7 @@
         api,getUser:()=>user,getWorkspace:workspace,findAgent,defaultSurface,ensureTerminal,
         confirm:dialogs.confirm,alert:dialogs.alert,menu:dialogs.menu,notice,
         chooseAgent:chooseAgentTarget,onActiveChange:renderChrome,onLayoutChange:renderChrome,
+        configureLaunch,
       }});
       renderChrome();
     }
@@ -464,8 +477,42 @@
       try {
         const sessions=await api(UI.agentApiPath(id)+'/sessions');
         if(dead || scope!==epoch || expanded!==id) return;
-        liveSessions=sessions.filter(session=>session.state==='live'); renderSidebar();
+        liveSessions=sessions; renderSidebar();
       } catch(error) { if(!dead && scope===epoch) notice(error.message||'Live sessions unavailable.'); }
+    }
+    async function configureLaunch(agentId, surface, session){
+      const found=findAgent(agentId), scope=epoch;
+      if(!found) throw new Error('Agent is no longer available');
+      const capability=UI.findRuntimeCapability(found.box.capabilities,found.agent.runtime);
+      if(UI.capabilityForSurface(capability,surface)?.features?.backend==='python-library') return {};
+      const values=await dialogs.form({
+        title:session?'Resume session':'Launch session',
+        desc:session?'These settings apply when resuming this session.':'Defaults are copied from the Agent. Changes here apply only to this session.',
+        fields:UI.launchFields(capability,session?.launch_options ?? found.agent.runtime_config ?? {},surface),
+        submit:session?'Resume':'Launch',
+      });
+      return !dead && scope===epoch ? values : null;
+    }
+    function sessionMenu(id,anchor){
+      const session=liveSessions?.find(item=>item.id===id), agentId=expanded;
+      if(!session || !findAgent(agentId)) return;
+      const scope=epoch, current=()=>!dead && epoch===scope && !!findAgent(agentId);
+      scopedMenu(anchor,[
+        {label:session.state==='live'?'Attach':'Resume',disabled:session.state!=='live'&&!session.can_resume,
+          action:()=>bench?.open({kind:'live',agentId,sessionId:id,surface:session.surface,resume:session.state!=='live'})},
+        {label:'Rename',disabled:!session.can_rename,action:async()=>{
+          const values=await dialogs.form({title:'Rename session',fields:[{name:'title',label:'Name',value:session.title,required:true}]});
+          if(!values||!current())return;
+          await api('/api/sessions/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({title:values.title,expected_title:session.title})});
+          if(current()&&expanded===agentId) await loadSessions(agentId);
+        }},
+        {label:'Delete session…',danger:true,disabled:!canManage(),action:async()=>{
+          if(!await dialogs.confirm('Delete session?', 'End this session and permanently delete its AgentBridge history? Native CLI history on the Machine is not deleted.', 'Delete session')||!current()||!canManage())return;
+          await api('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+          for(const pane of bench?.listPanes()||[]) if(pane.sessionId===id) bench.closePane(pane.id);
+          if(current()&&expanded===agentId) await loadSessions(agentId);
+        }},
+      ]);
     }
     function agentTargets(){
       const targets=[];

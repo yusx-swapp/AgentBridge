@@ -259,7 +259,10 @@
           if(other?.kind !== 'live') continue;
           const same = target.sessionId ? other.sessionId === target.sessionId
             : target.agentId === other.agentId && target.surface === other.surface;
-          if(same){ if(!target.restore) activate(entry.id); return; }
+          if(same){
+            if(target.resume){ id=entry.id; break; }
+            if(!target.restore) activate(entry.id); return;
+          }
         }
       }
       const entry = entries.get(id);

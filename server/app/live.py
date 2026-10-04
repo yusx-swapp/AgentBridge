@@ -343,6 +343,13 @@ class LiveRegistry:
             except Exception:
                 pass
 
+    def delete(self, session_id: str):
+        self.drop(session_id)
+        path = DATA_DIR / f"{session_id}.cast"
+        if path.resolve().parent != DATA_DIR.resolve():
+            raise ValueError("Invalid session recording path")
+        path.unlink(missing_ok=True)
+
 
 def _read_cast_events(session_id: str) -> list:
     path = DATA_DIR / f"{session_id}.cast"

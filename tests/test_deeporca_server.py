@@ -1101,7 +1101,7 @@ def test_legacy_configs_and_ordinary_runtimes_keep_existing_behavior(app_client)
         url = f"/api/agents/{agent['id']}"
         response = client.patch(url, json={"runtime_config": config()})
         assert response.status_code == 422
-        assert response.json()["detail"] == "this endpoint only supports display renames"
+        assert "launch_options only supports" in response.json()["detail"]
         response = client.patch(url, json={"display_name": "Ordinary rename"})
         assert response.status_code == 200, response.text
         assert response.json()["runtime_config"] == {"custom": "unchanged"}

@@ -295,6 +295,13 @@
       setStatus(status, statusText);
       try {
         if (activation && !restoreRequested) await openActivated(view, activation);
+        else if (target.kind === 'live' && next.resume && !restoreRequested) {
+          const session = await request(sessionPath(target.sessionId));
+          if (!current(view)) return;
+          validateSession(session, target.sessionId, target.agentId);
+          if (session.state !== 'live' && resumeBlocked(session)) throw new Error(resumeBlocked(session));
+          await openActivated(view, {session, resume:session.state !== 'live'});
+        }
         else if (target.kind === 'live') await openLive(view, next.forceNew === true, !!validSurface(next.surface), next.continueNative === true && !restoreRequested);
         else if (target.kind === 'history') await loadHistory(view);
         else await loadReplay(view);
@@ -335,6 +342,12 @@
       }
       if (!current(view)) return;
       if (session) applySessionMetadata(session);
+      let launchOptions;
+      if (!session && services.configureLaunch) {
+        launchOptions = await services.configureLaunch(target.agentId, target.surface);
+        if (!current(view)) return;
+        if (!launchOptions) { unavailable('Launch cancelled. No session was created.', false); return; }
+      }
       // Preflight the renderer BEFORE any create request. Chat never touches xterm.
       if (target.surface === 'terminal' && services.ensureTerminal) {
         setStatus('opening', 'Loading terminal renderer…');
@@ -345,7 +358,8 @@
       if (!session) {
         if (restoreRequested) { unavailable('The saved session cannot be resumed. Start a new session explicitly.'); return; }
         if (!canOperate()) { unavailable('Read-only: an Operator, Admin or Owner must start a session.', false); return; }
-        session = await request(agentPath(), { method: 'POST', body: JSON.stringify({ surface: target.surface }) });
+        session = await request(agentPath(), { method: 'POST', body: JSON.stringify({ surface: target.surface,
+          ...(launchOptions ? {launch_options:launchOptions} : {}) }) });
         if (!current(view)) return;
         created = true;
       }
@@ -481,7 +495,8 @@
           reportError(continueNative ? 'Read-only: permission to continue was revoked.' : 'Read-only: permission to resume was revoked.'); return;
         }
         if (!sendFrame(intent ? 'resume' : 'attach', { cols: terminal?.cols || 120, rows: terminal?.rows || 30,
-          surface: target.surface, ...(intent ? { agent_id: target.agentId, launch_id: intent.launch_id ?? null } : {}) })) return;
+          surface: target.surface, ...(intent ? { agent_id: target.agentId, launch_id: intent.launch_id ?? null,
+            ...(intent.launch_options ? {launch_options:intent.launch_options} : {}) } : {}) })) return;
         setStatus(intent ? 'starting' : 'connected', intent ? 'Preparing resume…' : 'Attached · waiting for runtime');
       };
       ownSocket.onmessage = async event => {
@@ -1190,6 +1205,12 @@
     }
     async function openActivated(view, activation) {
       const session = activation.session;
+      let launchOptions;
+      if (activation.resume && services.configureLaunch) {
+        launchOptions = await services.configureLaunch(target.agentId, session.surface, session);
+        if (!current(view)) return;
+        if (!launchOptions) { unavailable('Resume cancelled. The session was not started.', false); return; }
+      }
       applySessionMetadata(session);
       mountSessionCard(session, nodes.body, false);
       if (!mountSurface()) return;
@@ -1213,7 +1234,7 @@
       }
       if (activation.resume && !canOperate()) { reportError('Read-only: permission to resume was revoked.'); return; }
       wantOpen = true; liveActive = false;
-      connectSocket(activation.resume ? { launch_id: session.launch_id ?? null } : null);
+      connectSocket(activation.resume ? { launch_id: session.launch_id ?? null, launch_options:launchOptions } : null);
     }
     async function loadHistory(view) {
       const sessions = await request(agentPath());

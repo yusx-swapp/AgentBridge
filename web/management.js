@@ -534,6 +534,7 @@
           {name:'runtime', label:'Runtime', type:'select', options:runtimes, value:runtimes[0], required:true},
           {name:'local_project_id', label:'Local project', type:'select', options:projects(target, runtimes[0]), value:'',
             helpHtml:'<small data-project-help>Projects are connector-local. Add one below, then refresh.</small>'},
+          ...UI.launchFields(UI.findRuntimeCapability(target.capabilities, runtimes[0])),
           ...Array.from(runtimeUis.values()).flatMap(({ui, config})=>ui.creationFields(config)),
         ], submit:'Add agent',
         extraHtml:`<details class="local-action-guide"><summary>Add a local project</summary><p>Run this on <b>${esc(target.name)}</b>. The folder path stays on that Machine.</p>
@@ -559,6 +560,17 @@
               : 'Projects are connector-local. Optional for this runtime; add one below, then refresh.';
           };
           runtime.addEventListener('change', updateProjects); updateProjects();
+          const updateLaunch = ()=>{
+            const managed = runtimeUis.has(runtime.value);
+            const fields = UI.launchFields(UI.findRuntimeCapability(target.capabilities, runtime.value));
+            for(const field of fields){
+              const input = root.querySelector(`[data-field="${field.name}"]`);
+              input.closest('.field').hidden = managed; input.disabled = managed;
+              input.value = '';
+              if(field.options) input.innerHTML = optionsHtml(field.options, '');
+            }
+          };
+          runtime.addEventListener('change', updateLaunch); updateLaunch();
           for(const [id, {ui, config}] of runtimeUis) bindings.push(ui.bindCreation(root, runtime, config, id,
             ()=>UI.findRuntimeCapability(target.capabilities, id)));
           const update = ()=>{ if(live(snapshot, root)) command.textContent = UI.projectAddCommand(path.value, name.value); };
@@ -588,7 +600,9 @@
         if(selectedContract.requiresRegisteredProject && !values.local_project_id) throw new Error(`${selectedContract.label || values.runtime} requires a registered local project. Add one on this Machine, refresh projects, then select it.`);
         if(!projects(current, values.runtime).some(project=>project.value === values.local_project_id)) throw new Error('This project is no longer available. Refresh projects and choose again.');
         const runtimeUi = runtimeUis.get(values.runtime)?.ui;
-        const runtimeConfig = runtimeUi ? await runtimeUi.creationConfigFromValues(UI.findRuntimeCapability(current.capabilities, values.runtime), values) : {};
+        const runtimeConfig = runtimeUi ? await runtimeUi.creationConfigFromValues(UI.findRuntimeCapability(current.capabilities, values.runtime), values)
+          : {...(values.permission_mode ? {permission_mode:values.permission_mode} : {}),
+             ...(values.extra_args ? {extra_args:values.extra_args} : {})};
         if(!live(snapshot, root)) return;
         // Runtime-owned preparation may await credential encryption. Permission
         // must still be current after that yield, not just when Save was clicked.
@@ -606,7 +620,7 @@
     }
 
     // The shell asks the runtime contract, not a hardcoded runtime name.
-    const hasAgentSettings = agent=>!!Chat.runtimeContract(agent).agentUiModule;
+    const hasAgentSettings = agent=>!!agent?.runtime;
 
     async function agentSettings(id){
       const snapshot = capture();
@@ -622,6 +636,7 @@
       const initial = find();
       if(!initial) return;
       const runtime = initial.agent.runtime;
+      const settingsModule = Chat.runtimeContract(initial.agent).agentUiModule;
       const pending = loading(snapshot, 'Agent settings', 'Refreshing Agent state…');
       try { if(!await reload(snapshot, pending.element)) return; }
       catch(error){
@@ -630,8 +645,24 @@
         return dialogs.alert('Could not load Agent settings', message(error));
       }
       let found = find();
-      if(!found || found.agent.runtime !== runtime){ if(live(snapshot, pending.element)) dialogs.close(); return; }
+      if(!found || found.agent.runtime !== runtime || Chat.runtimeContract(found.agent).agentUiModule !== settingsModule){ if(live(snapshot, pending.element)) dialogs.close(); return; }
       let catalog;
+      if(!Chat.runtimeContract(found.agent).agentUiModule){
+        return mutationForm(snapshot, {
+          title:'Agent defaults', desc:'Defaults for new sessions only. Existing sessions keep their own launch settings.',
+          fields:[{name:'display_name',label:'Agent name',required:true,value:found.agent.display_name || found.agent.handle},
+            ...UI.launchFields(UI.findRuntimeCapability(found.box.capabilities, runtime), found.agent.runtime_config)],
+          submit:'Save defaults',
+        }, async(values, root)=>{
+          requireManager(snapshot);
+          if(!find()) throw new Error('Agent is no longer available');
+          await api(UI.agentApiPath(id), {method:'PATCH', body:JSON.stringify({
+            display_name:values.display_name,
+            runtime_config:{permission_mode:values.permission_mode, extra_args:values.extra_args},
+          })});
+          if(await reloadAfterMutation(snapshot, root)) dialogs.close();
+        });
+      }
       try { catalog = await Chat.loadLocalModule(Chat.runtimeContract(found.agent).agentUiModule); }
       catch(error){ if(live(snapshot, pending.element)) return dialogs.alert('Agent settings unavailable', message(error)); return; }
       if(!live(snapshot, pending.element)) return;
@@ -642,7 +673,7 @@
       const check = root=>{
         if(!live(snapshot, root)) return null;
         const current = find();
-        if(!current || current.agent.runtime !== runtime){ dialogs.close(); return null; }
+        if(!current || current.agent.runtime !== runtime || Chat.runtimeContract(current.agent).agentUiModule !== settingsModule){ dialogs.close(); return null; }
         return current;
       };
       return mutationForm(snapshot, {

@@ -24,7 +24,8 @@ from collections import deque
 from uuid import UUID, uuid4
 
 from .ipc import Channel
-from .pty_session import PtySession, resolve_cmd
+from .pty_session import PtySession, resolve_cmd, append_launch_args
+from agentbridge.launch_options import validate_launch_options
 from .agent_session import StructuredAgentSession
 from .runtime_probe import availability, probe_family
 from .local_store import LocalProjectStore, default_state_root
@@ -405,7 +406,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             await self.open_pty(
                 aid, sid, frame.get("cols", 120), frame.get("rows", 30),
                 surface=frame.get("surface"), launch_id=frame.get("launch_id"),
-                resume=t == "resume")
+                resume=t == "resume", launch_options=frame.get("launch_options"))
         elif t == "input":
             p = self.ptys.get((aid, sid))
             if p:
@@ -508,7 +509,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
     async def open_pty(self, agent_id: str, session_id: str,
                        cols: int = 120, rows: int = 30,
                        surface: str | None = None, launch_id=None,
-                       *, resume: bool = False) -> None:
+                       *, resume: bool = False, launch_options=None) -> None:
         if self._stopped or agent_id not in self.agents:
             return
         key = (agent_id, session_id)
@@ -542,11 +543,16 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                 try:
                     await self._open_pty(
                         agent_id, session_id, cols, rows, surface, current,
-                        emit, launch_id, resume)
+                        emit, launch_id, resume, launch_options)
                 except (_ContextUnavailable, NativeWriterError) as exc:
                     emit({"type": "runtime.unavailable", "agent_id": agent_id,
                           "session_id": session_id, "surface": surface,
                           "code": exc.code, "message": str(exc)})
+                except ValueError:
+                    emit({"type": "runtime.unavailable", "agent_id": agent_id,
+                          "session_id": session_id, "surface": surface,
+                          "code": "invalid_launch_options",
+                          "message": "Invalid launch options. Check the permission mode, quoting and reserved transport/context flags."})
                 except Exception:
                     # Exceptions can contain executable paths, argv, environment
                     # values or provider credentials. Never forward their text.
@@ -577,10 +583,16 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
         self._open_generations.pop(key, None)
 
     async def _open_pty(self, agent_id, session_id, cols, rows, surface,
-                        current, emit, launch_id, resume) -> None:
+                        current, emit, launch_id, resume, launch_options=None) -> None:
         key = (agent_id, session_id)
         existing = self.ptys.get(key)
         if existing and existing.is_alive():
+            if resume and launch_options is not None and getattr(existing, "launch_options", None) != launch_options:
+                emit({"type": "runtime.unavailable", "agent_id": agent_id,
+                      "session_id": session_id, "surface": surface,
+                      "code": "session_running",
+                      "message": "The session is still running. Attach to it, or end it before changing launch options."})
+                return
             confirmed = self.pty_surfaces.get(key, "terminal")
             if surface and surface != confirmed:
                 emit({
@@ -639,6 +651,24 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             })
             return
         info = dict(info)  # snapshot across asynchronous availability probing
+        agent_info = info
+        if launch_options is not None:
+            info = dict(info)
+            options = validate_launch_options(launch_options)
+            config = dict(info.get("runtime_config") or {})
+            for option_key in ("permission_mode", "extra_args"):
+                config.pop(option_key, None)
+                info.pop(option_key, None)
+            info["runtime_config"] = {**config, **options}
+        def configuration_current():
+            latest = self.agents.get(agent_id)
+            if latest is None or launch_options is None:
+                return latest == agent_info
+            def without_defaults(value):
+                return {**value, "runtime_config": {
+                    k: v for k, v in (value.get("runtime_config") or {}).items()
+                    if k not in {"permission_mode", "extra_args"}}}
+            return without_defaults(latest) == without_defaults(agent_info)
         configured_runtime = info.get("runtime")
         try:
             if surface:
@@ -681,7 +711,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             probe_family, adapter.family_id, include_models=False)
         if not current():
             return
-        if self.agents.get(agent_id) != info:
+        if not configuration_current():
             emit({"type": "runtime.unavailable", "agent_id": agent_id,
                        "session_id": session_id, "code": "configuration_changed",
                        "message": "Agent configuration changed during startup. Retry."})
@@ -713,6 +743,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             permission_mode=runtime_config.get(
                 "permission_mode", info.get("permission_mode")))
         structured = adapter.structured
+        cmd = append_launch_args(cmd, runtime_id, runtime_config.get("extra_args", ""))
 
         async def on_output(data: str):
             if self._stopped or agent_id not in self.agents:
@@ -798,7 +829,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                 refresh_context(strict=getattr(p, "require_existing_context", resume))
                 if context_error:
                     raise ValueError(context_error)
-                if self._stopped or self.agents.get(agent_id) != info:
+                if self._stopped or not configuration_current():
                     if getattr(p, "require_existing_context", resume):
                         raise _ContextUnavailable("configuration_changed")
                     raise ValueError("Agent configuration changed. Reopen the session before sending.")
@@ -835,6 +866,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                     runtime_id, info.get("launch_cmd"), model=model,
                     permission_mode=(options.get("permission_mode")
                                      or info.get("permission_mode")))
+                base = append_launch_args(base, runtime_id, runtime_config.get("extra_args", ""))
                 return base + runtimes.control_argv(
                     runtime_id, options, attachment_paths,
                     session_id=session_id if context_control is not None else None,
@@ -872,6 +904,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
         else:
             p = PtySession(cmd, info.get("cwd"), on_output, on_exit,
                            cols=cols, rows=rows)
+        p.launch_options = launch_options
         try:
             if resume:
                 p.prepare_context()

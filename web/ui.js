@@ -200,6 +200,19 @@
     return `/api/agents/${encodeURIComponent(String(agentId || ''))}`;
   }
 
+  function launchFields(capability, values={}, surface){
+    const modes = capabilityForSurface(capability, surface)?.features?.permission_modes || [];
+    const choices = [...new Set([...modes, values.permission_mode].filter(Boolean))];
+    return [
+      {name:'permission_mode', label:'Permission mode', type:'select', value:values.permission_mode || '',
+        options:[{value:'', label:'Runtime default'}, ...choices],
+        helpHtml:'<small>Bypass / allow-all modes may execute commands and modify files without asking. Use only in a trusted workspace. Runtime default may also allow actions automatically.</small>'},
+      {name:'extra_args', label:'Extra CLI arguments', value:values.extra_args || '',
+        placeholder:'--flag value',
+        helpHtml:'<small>Optional, passed directly to the CLI (not a shell). Quote values containing spaces. Do not enter secrets. Chat transport and session identity flags are reserved.</small>'},
+    ];
+  }
+
   function accountInvitationUrl(origin, token){
     const url = new URL(origin);
     if(!['http:','https:'].includes(url.protocol)) throw new TypeError('Invitation links need an HTTP origin');
@@ -530,6 +543,7 @@
     selectWorkspace: selectWorkspace,
     devboxesForWorkspace: devboxesForWorkspace,
     canAdminWorkspace: canAdminWorkspace,
+    launchFields,
     workspaceInvitationCopy: workspaceInvitationCopy,
     workspaceAcceptanceCopy: workspaceAcceptanceCopy,
     commandItems: commandItems,

@@ -120,7 +120,7 @@ def validate_program(program: str) -> str:
     return program
 
 
-def validate_argv(argv: list[str]) -> list[str]:
+def validate_argv(argv: list[str], *, allow_backslashes: bool = False) -> list[str]:
     """Validate every token of a launch argv.
 
     The first token is validated as a program to spawn (bare name or path); the
@@ -134,6 +134,8 @@ def validate_argv(argv: list[str]) -> list[str]:
         if not isinstance(tok, str) or tok == "":
             raise InvalidCommandError(f"argv token must be a non-empty string: {tok!r}")
         bad = _SHELL_METACHARS.intersection(tok)
+        if allow_backslashes:
+            bad.discard("\\")
         if bad:
             raise InvalidCommandError(
                 f"argv token {tok!r} contains disallowed characters: {sorted(bad)!r}")
@@ -341,6 +343,7 @@ class RuntimeAdapter:
                 **({"renderer": self.renderer, "interactive_approval": False}
                    if self.renderer else {}),
                 "session_lifecycle": 1,
+                "launch_options": 1,
                 "models": list(self.models),
                 "permission_modes": sorted(self.permission_modes),
                 "structured": self.structured,
@@ -798,4 +801,3 @@ register(RuntimeAdapter(
         "allowAllPaths": ("--allow-all-tools", "--allow-all-paths"),
     },
 ))
-

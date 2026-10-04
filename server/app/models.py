@@ -148,6 +148,7 @@ class Session(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     agent_id: Mapped[str] = mapped_column(ForeignKey("agent.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String, default="Session")
+    launch_options: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # One opaque lifecycle generation: None=never requested, legacy=migrated.
     # Opening/resuming/ending rotates it; display rename never does.
     launch_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -493,6 +494,8 @@ def _migrate(engine) -> None:
             stmts.append("ALTER TABLE session ADD COLUMN launch_id VARCHAR")
             # Unknown old rows must never be treated as a new, unstarted session.
             stmts.append("UPDATE session SET launch_id='legacy'")
+        if "launch_options" not in session_cols:
+            stmts.append("ALTER TABLE session ADD COLUMN launch_options JSON")
         if "workspace_id" not in session_cols:
             stmts.append(
                 "ALTER TABLE session ADD COLUMN workspace_id VARCHAR "
