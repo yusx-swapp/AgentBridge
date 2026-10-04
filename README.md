@@ -243,6 +243,29 @@ empty persisted session and reopens the controls without stopping other viewers'
 session or deleting prior history. **End session** is a separate confirmed action
 for the keyboard holder or a workspace Admin/Owner.
 
+## Agent defaults and session launch settings
+
+Adding an Agent registers its runtime and optional launch defaults; it does not
+start a session. Expand the Agent in the sidebar to create a Chat or Terminal
+session, view history, resume a supported native conversation, rename, or delete.
+New sessions copy Agent defaults. Launch and Resume show permission mode and
+extra CLI arguments before starting; Resume uses that session's saved settings.
+Attaching to an already-running session never reapplies launch options.
+
+Extra arguments are parsed as CLI arguments, not shell commands. Do not put
+secrets in them: launch settings are stored and visible to workspace members.
+Chat transport and native session identity flags are reserved. Bypass/allow-all
+permission modes can run commands and modify files without approval; use them
+only in trusted workspaces. Library-managed runtimes keep their own configuration.
+Update and reconnect the Connector before using session launch options.
+
+Session deletion requires workspace Admin/Owner access and confirmation. It
+requests termination and removes that session's AgentBridge recording/history,
+not the CLI's native history on the Machine. A possibly running offline session
+must be reconnected before deletion. End session remains the history-preserving
+alternative. Native Resume is only available for runtimes that report support;
+an ended Terminal session is not silently replaced with a new process.
+
 ## Local development and review
 
 Use the [implementation guide](docs/implementation.md#7-testing) for Python and

@@ -4,13 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {createBrowser, deferred} = require('./test-dom.js');
 
-function harness({signedIn=true,poll=false,hash='',search='',tmux=false}={}){
+function harness({signedIn=true,poll=false,hash='',search='',tmux=false,manualLaunch=false}={}){
   const browser=createBrowser();
   browser.window.location.hash=hash;browser.window.location.search=search;
   browser.window.history={replaceState(_state,_title,value){
     const url=new URL(value,'http://test.invalid');
     browser.window.location.hash=url.hash;browser.window.location.search=url.search;
   }};
+  const Dialogs=browser.loadModule('./dialogs.js'), createDialogs=Dialogs.createDialogs;
+  if(!manualLaunch) Dialogs.createDialogs=(...args)=>{
+    const dialogs=createDialogs(...args), form=dialogs.form;
+    dialogs.form=config=>['Launch session','Resume session'].includes(config.title)
+      ? Promise.resolve({permission_mode:'',extra_args:''}) : form(config);
+    return dialogs;
+  };
   const App=browser.loadModule('./app.js');
   const storage=new Map(), session=new Map(), requests=[];
   if(tmux)storage.set('agentbridge.shortcuts','tmux');
@@ -74,7 +81,7 @@ test('the agentbridge shell starts empty and does not pre-create or connect agen
   h.app.destroy();
 });
 
-test('agent row expands to live sessions and opens the chosen one', async()=>{
+test('agent row expands to all sessions and attaches the chosen live one', async()=>{
   const h=harness(); await h.app.start();
   h.override(url=>url==='/api/agents/a1/sessions'?[
     {id:'s2',agent_id:'a1',title:'Second',surface:'structured',state:'live',created_at:'2026-01-01T10:00:00'},
@@ -82,7 +89,7 @@ test('agent row expands to live sessions and opens the chosen one', async()=>{
   h.root.querySelector('[data-agent-sessions="a1"]').click();
   await new Promise(resolve=>setTimeout(resolve,0));
   const rows=h.root.querySelectorAll('[data-open-session]');
-  assert.equal(rows.length,1);
+  assert.equal(rows.length,2);
   assert.match(rows[0].textContent,/Second/);
   rows[0].click();
   await new Promise(resolve=>setTimeout(resolve,0));
@@ -108,6 +115,61 @@ test('opening an agent delegates to its pane and workspace switch detaches it, n
   const key='agentbridge.workbench.v1:'+JSON.stringify(['user','one']);
   assert.match(h.storage.get(key),/created-1/);
   assert.ok(!h.storage.get(key).includes('text'));
+  h.app.destroy();
+});
+
+test('sidebar New session prompts before creating and cancellation never launches',async()=>{
+  const h=harness({manualLaunch:true});await h.app.start();
+  h.root.querySelector('[data-open-agent="a1"]').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(h.sockets.length,0);
+  h.root.querySelector('[data-new-session="a1"]').click();
+  h.document.querySelector('.context-menu button').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.match(h.document.querySelector('.overlay').textContent,/Launch session/);
+  assert.equal(h.requests.filter(r=>r.method==='POST').length,0);
+  h.document.querySelector('[data-cancel]').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(h.requests.filter(r=>r.method==='POST').length,0);
+  const opening=h.app.openAgent('a1','structured');
+  await new Promise(resolve=>setTimeout(resolve,0));
+  h.document.querySelector('[data-field="extra_args"]').value='--model opus';
+  h.document.querySelector('.overlay form').dispatchEvent({type:'submit',preventDefault(){}});
+  await opening;
+  const created=h.requests.find(r=>r.method==='POST');
+  assert.deepEqual(JSON.parse(created.body).launch_options,{permission_mode:'',extra_args:'--model opus'});
+  h.app.destroy();
+});
+
+test('sidebar rename and confirmed deletion operate on the selected session without a pane',async()=>{
+  const h=harness();await h.app.start();
+  const session={id:'s1',agent_id:'a1',title:'Old',surface:'structured',state:'ended',can_rename:true};
+  let sessions=[session];
+  h.override((url,options)=>{
+    if(url==='/api/agents/a1/sessions')return sessions;
+    if(url==='/api/sessions/s1'&&options.method==='PATCH'){session.title=JSON.parse(options.body).title;return session;}
+    if(url==='/api/sessions/s1'&&options.method==='DELETE'){sessions=[];return {};}
+  });
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+  const menu=async(label)=>{
+    h.root.querySelector('[data-session-menu="s1"]').click();
+    h.document.querySelectorAll('.context-menu button').find(button=>button.textContent===label).click();
+    await tick();
+  };
+  h.root.querySelector('[data-agent-sessions="a1"]').click();await tick();
+  await menu('Rename');
+  h.document.querySelector('[data-field="title"]').value='Renamed';
+  h.document.querySelector('.overlay form').dispatchEvent({type:'submit',preventDefault(){}});
+  await tick();
+  assert.deepEqual(JSON.parse(h.requests.find(r=>r.method==='PATCH').body),{title:'Renamed',expected_title:'Old'});
+  assert.match(h.root.querySelector('[data-open-session="s1"]').textContent,/Renamed/);
+  await menu('Delete session…');
+  h.document.querySelectorAll('[data-action-index]').find(b=>b.textContent==='Cancel').click();await tick();
+  assert.equal(h.requests.some(r=>r.method==='DELETE'),false);
+  await menu('Delete session…');
+  h.document.querySelectorAll('[data-action-index]').find(b=>b.textContent==='Delete session').click();await tick();
+  assert.equal(h.root.querySelector('[data-open-session="s1"]'),null);
+  assert.equal(h.sockets.length,0);
   h.app.destroy();
 });
 

@@ -1489,7 +1489,7 @@ async def rename_agent(agent_id: str, request: Request, s: OrmSession = Depends(
     if runtime_config is not None:
         if len(json.dumps(runtime_config)) > 16 * 1024:
             raise HTTPException(422, "runtime_config is too large")
-        if _agent_has_active_sessions(s, a):
+        if policy.renderer and _agent_has_active_sessions(s, a):
             raise HTTPException(409, "close active conversations before changing runtime configuration")
     if "display_name" in body:
         name = body["display_name"]
@@ -1544,6 +1544,22 @@ async def delete_agent(agent_id: str, request: Request, s: OrmSession = Depends(
 
 
 # ---------------------------------------------------------------- sessions
+def _launch_options(value, agent):
+    from agentbridge.launch_options import validate_launch_options
+    try:
+        options = validate_launch_options(value)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    if options and runtime_policy(agent.runtime).renderer:
+        raise HTTPException(422, "This runtime manages its own launch configuration")
+    return options
+
+
+def _default_launch_options(agent):
+    return {key: value for key, value in (agent.runtime_config or {}).items()
+            if key in {"permission_mode", "extra_args"}}
+
+
 def _surface_hint(body: dict) -> str | None:
     surface = body.get("surface")
     if surface not in (None, "terminal", "structured"):
@@ -1610,6 +1626,8 @@ def _session_json(sess: Session, agent: Agent | None = None, *, role: str | None
     result = {"id": sess.id, "agent_id": sess.agent_id, "title": sess.title,
               "surface": sess.surface, "created_at": sess.created_at.isoformat(),
               "state": state, "launch_id": sess.launch_id,
+              "launch_options": sess.launch_options,
+              "can_delete": role in {WS_ROLE_ADMIN, "owner"},
               "can_rename": operator, "resume_supported": supported,
               "can_resume": operator and online and supported, "resume_reason": reason}
     if agent is not None:
@@ -1640,12 +1658,14 @@ async def create_session(agent_id: str, request: Request, s: OrmSession = Depend
     if not a:
         raise HTTPException(404, "not found")
     role = _devbox_role(s, u.id, a.devbox, WS_ROLE_OPERATOR)
-    surface = _surface_hint(await _session_body(request))
+    body = await _session_body(request)
+    surface = _surface_hint(body)
     surface = runtime_policy(a.runtime).session_surface(surface)
     # Canonical UUID text for new native CLI handles. Existing IDs never change.
     sess = Session(id=str(uuid4()), user_id=u.id, agent_id=a.id,
                    workspace_id=a.devbox.workspace_id, title=f"{a.display_name} session",
-                   surface=surface)
+                   surface=surface, launch_options=_launch_options(
+                       body.get("launch_options", _default_launch_options(a)), a))
     s.add(sess)
     s.commit()
     return _session_json(sess, a, role=role)
@@ -1659,6 +1679,29 @@ async def get_session(session_id: str, request: Request, s: OrmSession = Depends
         raise HTTPException(404, "not found")
     role = _session_role(s, u.id, sess)
     return _session_json(sess, s.get(Agent, sess.agent_id), role=role)
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request, s: OrmSession = Depends(db)):
+    u = current_user(request, s)
+    sess = s.get(Session, session_id)
+    if not sess:
+        raise HTTPException(404, "not found")
+    _session_role(s, u.id, sess, WS_ROLE_ADMIN)
+    agent_id = sess.agent_id
+    ls = live_registry.get(session_id)
+    if sess.launch_id is not None and not (ls and ls.ended):
+        if not await hub.to_devbox(agent_id, {
+            "type": "terminate", "agent_id": agent_id, "session_id": session_id,
+            "launch_id": None if sess.launch_id == "legacy" else sess.launch_id,
+        }):
+            raise HTTPException(409, "Reconnect the Machine before deleting a possibly running session")
+    s.delete(sess)
+    s.commit()
+    await hub.retire_agent_sessions(agent_id, {session_id})
+    live_registry.delete(session_id)
+    audit_event("session.deleted", actor_user_id=u.id, resource_type="session", resource_id=session_id)
+    return {"ok": True}
 
 
 @app.patch("/api/sessions/{session_id}")
@@ -2790,9 +2833,20 @@ async def ws_term(ws: WebSocket):
                                         "launch_id": sess.launch_id})
                     continue
                 previous = sess.launch_id
+                try:
+                    options = _launch_options(
+                        frame.get("launch_options", sess.launch_options
+                                  if sess.launch_options is not None else _default_launch_options(agent)), agent)
+                    if (options or _default_launch_options(agent)) and _session_features(sess).get("launch_options") != 1:
+                        raise HTTPException(422, "Update and reconnect the Connector to use session launch options")
+                except HTTPException as exc:
+                    await ws.send_json({"type": "error", "session_id": sid,
+                                        "code": "invalid_launch_options", "message": exc.detail})
+                    continue
                 launch = new_id() if _session_features(sess).get("session_lifecycle") == 1 else "legacy"
                 changed = s.execute(update(Session).where(
-                    Session.id == sess.id, Session.launch_id == previous).values(launch_id=launch))
+                    Session.id == sess.id, Session.launch_id == previous).values(
+                        launch_id=launch, launch_options=options))
                 if changed.rowcount != 1:
                     s.rollback()
                     await ws.send_json({"type": "error", "session_id": sid,
@@ -2834,11 +2888,12 @@ async def ws_term(ws: WebSocket):
                                         "code": "read_only", "message": "Operator access is required to start or resume."})
                     continue
                 ok = await hub.to_devbox(sess.agent_id, {
-                    # Never forward browser profile/config/credential overrides.
-                    # Desired settings enter only via the authorized Agent policy.
+                    # Library profiles/credentials remain Agent-owned. Only the
+                    # validated CLI launch settings may vary by session.
                     "type": "resume" if t == "resume" and not policy.library_continuation else "open",
                     "agent_id": sess.agent_id, "session_id": sess.id,
-                    "launch_id": launch, "cols": cols, "rows": rows, "surface": surface})
+                    "launch_id": launch, "cols": cols, "rows": rows, "surface": surface,
+                    **({"launch_options": sess.launch_options} if not policy.renderer else {})})
                 if not ok:
                     s.execute(update(Session).where(
                         Session.id == sess.id, Session.launch_id == launch).values(launch_id=previous))
