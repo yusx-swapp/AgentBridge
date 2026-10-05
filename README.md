@@ -266,6 +266,22 @@ must be reconnected before deletion. End session remains the history-preserving
 alternative. Native Resume is only available for runtimes that report support;
 an ended Terminal session is not silently replaced with a new process.
 
+Claude Code, Copilot CLI and Codex Terminal sessions preserve native conversation
+identity across explicit Resume, using the same local record and single-writer
+guard. Claude/Copilot accept a supplied ID. Codex generates its ID: each Terminal
+owns a loopback-only, token-authenticated app-server; the Connector reads its
+unique thread ID over the official API and persists the mapping locally.
+No screen parsing, user-supplied ID, `--last`, or shared-server guessing is used.
+Terminal exit also stops its app-server. Codex requires the remote TUI,
+`thread/loaded/list`, and authenticated WebSocket support (verified with 0.160.0).
+Update and reconnect the Connector first. Old sessions without a native mapping,
+or sessions without retained native history, fail visibly instead of creating
+a replacement conversation. Codex app-server transport is upstream experimental.
+
+The opt-in native Codex regression uses an isolated home and a localhost model
+fixture (no paid model calls): set `AGENTBRIDGE_TEST_CODEX=1`, then run
+`python -m pytest tests/test_codex_terminal_integration.py`.
+
 ## Local development and review
 
 Use the [implementation guide](docs/implementation.md#7-testing) for Python and

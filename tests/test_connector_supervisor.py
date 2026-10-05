@@ -10,12 +10,21 @@ import os
 import tempfile
 import unittest
 from unittest import mock
+import pytest
 
 import connector.client as client_mod
 from connector.client import SupervisorService
 from connector.ipc import IS_WIN, LoopbackChannel, connect_channel, ensure_secret
 from connector.supervisor import SessionSupervisor
 import connector.supervisor as supervisor_mod
+
+
+@pytest.fixture(autouse=True)
+def plain_terminal_for_transport_tests(monkeypatch):
+    # These tests substitute FakePty; native Codex lifecycle is covered separately.
+    adapter = supervisor_mod.runtimes.get("codex-cli")
+    monkeypatch.setitem(supervisor_mod.runtimes._REGISTRY, "codex-cli",
+                        dataclasses.replace(adapter, context_control=None, terminal_factory=None))
 
 
 class FakePty:
@@ -83,10 +92,10 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
                 "launch_options": {"permission_mode": "bypassPermissions", "extra_args": "--model opus"}})
             self.assertIn(("a", "one"), sup.ptys, sup.pending)
             self.assertEqual(sup.ptys[("a", "one")].cmd,
-                             ["claude", "--dangerously-skip-permissions", "--model", "opus"])
+                             ["claude", "--dangerously-skip-permissions", "--model", "opus", "--session-id", "one"])
             await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "two",
                 "surface": "terminal", "launch_options": {"permission_mode": "", "extra_args": ""}})
-            self.assertEqual(sup.ptys[("a", "two")].cmd, ["claude"])
+            self.assertEqual(sup.ptys[("a", "two")].cmd, ["claude", "--session-id", "two"])
         self.assertEqual(config, {"permission_mode": "plan", "extra_args": "--model sonnet"})
         sup.shutdown()
 
@@ -104,6 +113,63 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
             cmd = pty_session.append_launch_args(["claude"], "claude-code",
                 r'--add-dir "C:\work folder\project"')
         self.assertEqual(cmd, ["claude", "--add-dir", r"C:\work folder\project"])
+
+    async def test_terminal_resume_reuses_persisted_native_id_after_supervisor_restart(self):
+        from contextlib import ExitStack
+        from connector.local_store import LocalProjectStore
+        from uuid import uuid4
+        class ContextPty(FakePty):
+            async def start(self):
+                if getattr(self, "context_preparing", None):
+                    self.context_preparing()
+                await super().start()
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as cleanup:
+            store = LocalProjectStore(os.path.join(tmp, "state.db"))
+            cleanup.callback(store.close)
+            sid = str(uuid4())
+            for runtime in ("claude-code", "copilot-cli"):
+                with mock.patch.object(supervisor_mod, "PtySession", ContextPty):
+                    first = SessionSupervisor({"a": {"runtime": runtime, "cwd": tmp}}, local_store=store)
+                    await first.open_pty("a", sid, surface="terminal")
+                    self.assertEqual(first.ptys[("a", sid)].cmd[-2:], ["--session-id", sid])
+                    first.shutdown()
+                    second = SessionSupervisor({"a": {"runtime": runtime, "cwd": tmp}}, local_store=store)
+                    await second.open_pty("a", sid, surface="terminal", resume=True)
+                    self.assertEqual(second.ptys[("a", sid)].cmd[-2:], ["--resume", sid])
+                    second.shutdown()
+                sid = str(uuid4())
+
+    async def test_terminal_resume_missing_or_changed_native_context_never_spawns(self):
+        from uuid import uuid4
+        sid = str(uuid4())
+        for runtime, other in (("claude-code", "copilot-cli"), ("copilot-cli", "claude-code")):
+            for recorded in (None, (other, os.getcwd()), (runtime, "wrong-cwd")):
+                with self.subTest(runtime=runtime, recorded=recorded):
+                    sup = SessionSupervisor({"a": {"runtime": runtime}})
+                    if recorded:
+                        sup._memory_native_contexts[("a", sid)] = recorded
+                    await sup.open_pty("a", sid, surface="terminal", resume=True)
+                    if runtime == "copilot-cli" and recorded == (runtime, "wrong-cwd"):
+                        self.assertEqual(sup.ptys[("a", sid)].cmd[-2:], ["--resume", sid])
+                    else:
+                        self.assertNotIn(("a", sid), sup.ptys)
+                        self.assertTrue(any(f.get("code", "").startswith("context.") for f in sup.pending))
+                    sup.shutdown()
+
+    async def test_running_terminal_attach_does_not_spawn_or_replace_launch_settings(self):
+        for runtime in ("claude-code", "copilot-cli"):
+            with self.subTest(runtime=runtime):
+                sup = SessionSupervisor({"a": {"runtime": runtime}})
+                options = {"permission_mode": "", "extra_args": ""}
+                await sup.open_pty("a", "live", surface="terminal", launch_options=options)
+                child = sup.ptys[("a", "live")]
+                count = len(FakePty.instances)
+                await sup.open_pty("a", "live", surface="terminal",
+                                   launch_options={"extra_args": "--model different"})
+                self.assertIs(sup.ptys[("a", "live")], child)
+                self.assertEqual(len(FakePty.instances), count)
+                self.assertEqual(child.launch_options, options)
+                sup.shutdown()
 
     async def test_agents_frame_refreshes_directory_for_hot_added_agent(self):
         # Agent 'b' does not exist at startup; a pushed 'agents' frame should

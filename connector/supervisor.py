@@ -605,6 +605,12 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                 })
                 return
             if resume:
+                if confirmed == "terminal":
+                    self.pty_launch_ids[key] = launch_id
+                    emit({"type": "ready", "agent_id": agent_id,
+                          "session_id": session_id, "pty_instance_id": self.pty_instances[key],
+                          "surface": confirmed, "structured": False})
+                    return
                 if (confirmed != "structured"
                         or not isinstance(existing, StructuredAgentSession)
                         or existing._context_preparing is None
@@ -701,7 +707,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             return
         runtime_id = adapter.id
         confirmed_surface = adapter.surface_id
-        if resume and (not adapter.structured or adapter.context_control is None):
+        if resume and adapter.context_control is None:
             raise _ContextUnavailable()
 
         # The server-side capability blob is a cached self-report, not an auth
@@ -902,11 +908,42 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                     self._native_lock_root, adapter.family_id, session_id)) if context_control else None,
                 require_existing_context=resume)
         else:
-            p = PtySession(cmd, info.get("cwd"), on_output, on_exit,
-                           cols=cols, rows=rows)
+            context = adapter.context_control
+            if info.get("launch_cmd"):
+                if resume:
+                    raise _ContextUnavailable("context.custom_command")
+                context = None
+            if context:
+                cwd = os.path.normcase(os.path.realpath(os.path.abspath(
+                    info.get("cwd") or os.getcwd())))
+                recorded = self._recorded_context(agent_id, session_id)
+                if resume and recorded is None:
+                    raise _ContextUnavailable()
+                if recorded and recorded[0] != runtime_id:
+                    raise _ContextUnavailable("context.runtime_mismatch")
+                if (recorded and context.resume_scope == "cwd"
+                        and recorded[1] != cwd):
+                    raise _ContextUnavailable("context.cwd_mismatch")
+                if not adapter.terminal_factory:
+                    cmd += context.argv(session_id, resume=resume or recorded is not None)
+            factory = adapter.terminal_factory if context else None
+            p = (factory or PtySession)(
+                cmd, info.get("cwd"), on_output, on_exit, cols=cols, rows=rows,
+                **({"store": self.local_store, "agent_id": agent_id, "session_id": session_id}
+                   if factory else {}))
+            if context:
+                p.writer_lease_factory = lambda: NativeWriterLease(
+                    self._native_lock_root, adapter.family_id, session_id)
+                def prepare_terminal_context():
+                    if (not configuration_current()
+                            or self._recorded_context(agent_id, session_id) != recorded):
+                        raise _ContextUnavailable("configuration_changed")
+                    if recorded is None:
+                        self._reserve_context(agent_id, session_id, runtime_id, cwd)
+                p.context_preparing = prepare_terminal_context
         p.launch_options = launch_options
         try:
-            if resume:
+            if resume and structured:
                 p.prepare_context()
             await p.start()
             if not current():

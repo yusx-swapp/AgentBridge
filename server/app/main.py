@@ -1607,7 +1607,7 @@ def _native_resume_supported(sess: Session) -> bool:
         store = object_session(sess)
         agent = store.get(Agent, sess.agent_id) if store is not None else None
         return bool(agent and runtime_policy(agent.runtime).library_continuation)
-    return (sess.surface == "structured" and features.get("session_lifecycle") == 1
+    return (sess.surface in {"structured", "terminal"} and features.get("session_lifecycle") == 1
             and isinstance(context, dict) and context.get("continuity") == "native_resume"
             and context.get("available") is True and context.get("explicit_resume") is True)
 

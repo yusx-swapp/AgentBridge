@@ -125,6 +125,7 @@ def test_probe_missing_runtime_is_reported_without_host_paths(monkeypatch):
     assert surface["legacy_runtime_id"] == "test-structured"
     assert surface["features"] == {
         "session_lifecycle": 1,
+        "launch_options": 1,
         "models": ["fallback-model"],
         "permission_modes": [],
         "structured": True,

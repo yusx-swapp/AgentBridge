@@ -1056,7 +1056,9 @@
       } else if (Object.prototype.hasOwnProperty.call(frame, 'context_resume')) nodes.resumeNote.hidden = true;
     }
     function showPreparingResumeNotice() {
-      nodes.resumeNote.textContent = 'Preparing to resume the same CLI conversation. Native history has not been verified; the next message may perform that check.';
+      nodes.resumeNote.textContent = target.surface === 'terminal'
+        ? 'Resuming the same native CLI conversation. Check the CLI output if its saved history is unavailable.'
+        : 'Preparing to resume the same CLI conversation. Native history has not been verified; the next message may perform that check.';
       nodes.resumeNote.hidden = false;
     }
     function resumeBlocked(session) {
@@ -1065,7 +1067,7 @@
       // Generic resume metadata must not authorize adopting an unknown context.
       if (sessionRuntimeContract(session).explicitContinuation)
         return 'Use Continue native conversation for an inactive DeepOrca session; generic native resume is unavailable.';
-      if (session.surface !== 'structured') return 'Native resume is supported only for compatible Chat sessions, not Terminal sessions.';
+      if (!validSurface(session.surface)) return 'This session has no supported surface.';
       if (!session.resume_supported) return session.resume_reason || 'This runtime does not support native resume.';
       if (session.state === 'starting') return 'This session is already starting. View history or attach once it is live.';
       if (!session.can_resume) return session.resume_reason || 'Resume is unavailable. Check that the connector is online.';
@@ -1148,7 +1150,7 @@
             validateSession(latest, sessionId, agentId);
             Object.assign(session, latest); updateSessionTitle(sessionId, latest.title);
             if (latest.state !== 'live' && resumeBlocked(latest)) { error.textContent = resumeBlocked(latest); return; }
-            if (latest.state === 'live' && (latest.available === false || latest.surface !== 'structured')) {
+            if (latest.state === 'live' && (latest.available === false || !validSurface(latest.surface))) {
               error.textContent = 'The live session is unavailable or its surface changed. Reopen History.'; return;
             }
             const activation = { session: latest, resume: latest.state !== 'live',
@@ -1211,13 +1213,17 @@
         if (!current(view)) return;
         if (!launchOptions) { unavailable('Resume cancelled. The session was not started.', false); return; }
       }
+      if (session.surface === 'terminal' && services.ensureTerminal) {
+        await services.ensureTerminal();
+        if (!current(view)) return;
+      }
       applySessionMetadata(session);
       mountSessionCard(session, nodes.body, false);
       if (!mountSurface()) return;
       setStatus('starting', activation.resume ? 'Preparing resume…' : 'Attaching live…');
       if (activation.resume) showPreparingResumeNotice();
-      let data = activation.recording;
-      if (!data) {
+      let data = session.surface === 'terminal' ? null : activation.recording;
+      if (!data && session.surface === 'structured') {
         try { data = await request(sessionPath(target.sessionId) + '/replay'); }
         catch (failure) { if (current(view)) recordingNote('The recorded transcript is unavailable: ' + (failure.message || 'not retained') + '.'); }
       }
