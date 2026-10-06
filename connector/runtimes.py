@@ -186,7 +186,7 @@ class RuntimeControl:
 class ContextControl:
     """Provider-owned context continuity exposed through one generic contract."""
 
-    new_session_flag: str
+    new_session_flag: str | None
     resume_session_flag: str
     resume_scope: str  # ``cwd`` or ``machine``
 
@@ -195,7 +195,7 @@ class ContextControl:
                 or any(ord(ch) < 0x20 for ch in session_id)):
             raise InvalidCommandError("invalid native session id")
         flag = self.resume_session_flag if resume else self.new_session_flag
-        return [flag, session_id]
+        return [flag, session_id] if flag else []
 
     def public(self, installed: bool) -> dict:
         return {
@@ -284,6 +284,7 @@ class RuntimeAdapter:
     per_turn: bool = False
     prompt_argv: tuple[str, ...] = ()
     context_control: ContextControl | None = None
+    terminal_factory: Callable | None = None
     # Controls are rendered generically by the browser and validated again by
     # the connector. Model remains a first-class adapter field because it is
     # shared by terminal and structured runtimes.
@@ -401,15 +402,12 @@ def register(adapter: RuntimeAdapter, *, replace: bool = False) -> RuntimeAdapte
             validate_argv([adapter.executable, *declared])
     if adapter.context_control is not None:
         context = adapter.context_control
-        if not adapter.structured:
-            raise InvalidCommandError(
-                "native context continuity requires a structured runtime")
         if context.resume_scope not in {"cwd", "machine"}:
             raise InvalidCommandError(
                 f"runtime {adapter.id!r} has invalid context resume scope")
         validate_argv([
             adapter.executable,
-            context.new_session_flag,
+            *([context.new_session_flag] if context.new_session_flag else []),
             context.resume_session_flag,
         ])
     for mode, extra in adapter.permission_modes.items():
@@ -638,6 +636,7 @@ register(RuntimeAdapter(
     label="Claude Code",
     base_argv=("claude",),
     family="claude-code", surface="terminal",
+    context_control=ContextControl("--session-id", "--resume", "cwd"),
     model_flag="--model",
     models=_CLAUDE_CODE_MODELS,
     permission_modes={
@@ -659,6 +658,7 @@ register(RuntimeAdapter(
     label="GitHub Copilot CLI",
     base_argv=("copilot",),
     family="copilot-cli", surface="terminal",
+    context_control=ContextControl("--session-id", "--resume", "machine"),
     model_flag="--model",
     models=_COPILOT_MODELS,
     permission_modes={
@@ -675,11 +675,18 @@ register(RuntimeAdapter(
     auth_argv=(),
 ))
 
+def _codex_terminal(*args, **kwargs):
+    from .codex_terminal import CodexTerminal
+    return CodexTerminal(*args, **kwargs)
+
+
 register(RuntimeAdapter(
     id="codex-cli",
     label="Codex CLI",
     base_argv=("codex",),
     family="codex-cli", surface="terminal", default_surface=True,
+    context_control=ContextControl(None, "resume", "cwd"),
+    terminal_factory=_codex_terminal,
     model_flag="--model",
     models=("gpt-5-codex", "o4-mini"),
     permission_modes={

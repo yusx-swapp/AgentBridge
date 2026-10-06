@@ -130,6 +130,7 @@ class NativeContext:
     established_at: str
     updated_at: str
     state: str = "established"
+    native_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -221,6 +222,8 @@ class LocalProjectStore:
                 self._conn.execute(
                     "ALTER TABLE native_context ADD COLUMN state TEXT NOT NULL "
                     "DEFAULT 'established'")
+            if "native_id" not in context_columns:
+                self._conn.execute("ALTER TABLE native_context ADD COLUMN native_id TEXT")
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS local_skill (
@@ -360,7 +363,7 @@ class LocalProjectStore:
         with self._lock:
             row = self._conn.execute(
                 "SELECT agent_id, session_id, runtime_id, cwd, "
-                "established_at, updated_at, state FROM native_context "
+                "established_at, updated_at, state, native_id FROM native_context "
                 "WHERE agent_id = ? AND session_id = ?",
                 (agent_id, session_id),
             ).fetchone()
@@ -374,6 +377,18 @@ class LocalProjectStore:
                 (agent_id, session_id),
             )
             self._conn.commit()
+
+    def bind_native_id(self, agent_id: str, session_id: str, runtime_id: str, native_id: str) -> None:
+        """Bind a provider-generated ID once; never redirect an existing session."""
+        native_id = str(uuid.UUID(native_id))
+        with self._lock:
+            changed = self._conn.execute(
+                "UPDATE native_context SET native_id=? WHERE agent_id=? AND session_id=? "
+                "AND runtime_id=? AND (native_id IS NULL OR native_id=?)",
+                (native_id, agent_id, session_id, runtime_id, native_id))
+            self._conn.commit()
+            if changed.rowcount != 1:
+                raise ValueError("Native session binding is missing or changed")
 
     def native_context_sessions(self, agent_id: str) -> list[str]:
         """Return the recorded session ids for one agent on this device."""
@@ -414,7 +429,7 @@ class LocalProjectStore:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 row = self._conn.execute(
-                    "SELECT agent_id, session_id, runtime_id, cwd, established_at, updated_at, state "
+                    "SELECT agent_id, session_id, runtime_id, cwd, established_at, updated_at, state, native_id "
                     "FROM native_context WHERE agent_id=? AND session_id=?", (agent_id, session_id),
                 ).fetchone()
                 previous = NativeContext(**dict(row)) if row else None
@@ -443,7 +458,7 @@ class LocalProjectStore:
                 self._conn.rollback()
                 raise
             row = self._conn.execute(
-                "SELECT agent_id, session_id, runtime_id, cwd, established_at, updated_at, state "
+                "SELECT agent_id, session_id, runtime_id, cwd, established_at, updated_at, state, native_id "
                 "FROM native_context WHERE agent_id=? AND session_id=?", (agent_id, session_id),
             ).fetchone()
             assert row is not None

@@ -49,12 +49,17 @@ def append_launch_args(cmd, runtime_id, extra_args):
     # Structured transport and native context identity belong to AgentBridge.
     protected = {"-p", "--prompt", "--resume", "--session-id", "--continue",
                  "-c", "-r", "--fork-session", "--output-format", "--input-format",
-                 "--stream", "--include-partial-messages", "--verbose"}
-    if runtimes.get(runtime_id).structured and any(
+                 "--stream", "--include-partial-messages", "--verbose",
+                 "--no-session-persistence"}
+    adapter = runtimes.get(runtime_id)
+    if adapter.terminal_factory:
+        protected = {"resume", "fork", "exec", "app-server", "--last", "--all",
+                     "--remote", "--remote-auth-token-env"}
+    if (adapter.structured or adapter.context_control) and any(
             arg.split("=")[0] in protected or
-            (arg.startswith(("-p", "-r", "-c")) and not arg.startswith("--"))
+            (not adapter.terminal_factory and arg.startswith(("-p", "-r", "-c")) and not arg.startswith("--"))
             for arg in args):
-        raise runtimes.InvalidCommandError("Structured session transport/context flags cannot be overridden")
+        raise runtimes.InvalidCommandError("Session transport/context flags cannot be overridden")
     return runtimes.validate_argv(cmd + args, allow_backslashes=IS_WIN)
 
 
@@ -78,6 +83,10 @@ class PtySession:
         self._exit_code = None
         self._read_ready = None
         self._reader_task = None
+        self.writer_lease_factory = None
+        self.context_preparing = None
+        self._writer_lease = None
+        self.env = None
 
     async def start(self):
         if self._started or self._killed:
@@ -85,6 +94,12 @@ class PtySession:
         self._started = True
         self._loop = asyncio.get_running_loop()
         try:
+            if self.writer_lease_factory:
+                self._writer_lease = self.writer_lease_factory()
+                self._writer_lease.acquire()
+                if self.context_preparing:
+                    self.context_preparing()
+                self._writer_lease.begin_process()
             if IS_WIN:
                 await self._start_win()
             else:
@@ -93,7 +108,17 @@ class PtySession:
             self.kill()
             if self._reader_task is not None:
                 await asyncio.shield(self._reader_task)
+            self._release_writer()
             raise
+
+    def _release_writer(self, *, reaped=False):
+        lease, self._writer_lease = self._writer_lease, None
+        if lease:
+            try:
+                if reaped:
+                    lease.process_reaped()
+            finally:
+                lease.release()
 
     # -------- Windows (pywinpty) --------
     async def _start_win(self):
@@ -101,7 +126,8 @@ class PtySession:
         # PtyProcess accepts argv directly. Serializing with list2cmdline first
         # makes pywinpty split and quote it again, corrupting paths with spaces.
         self._pty = winpty.PtyProcess.spawn(
-            self.cmd, cwd=self.cwd, dimensions=(self.rows, self.cols))
+            self.cmd, cwd=self.cwd, dimensions=(self.rows, self.cols),
+            **({"env": self.env} if self.env is not None else {}))
         self._alive = True
         self._reader_task = asyncio.create_task(self._win_reader())
 
@@ -127,14 +153,17 @@ class PtySession:
             self.kill()
         finally:
             self._alive = False
+            reaped = False
             try:
                 await asyncio.to_thread(self._close_win, proc)
+                reaped = not proc.isalive()
                 status = proc.exitstatus
                 if status is not None:
                     code = int(status)
             finally:
                 self._pty = None
                 self._exit_code = code
+                self._release_writer(reaped=reaped)
                 await self.on_exit(code)
 
     @staticmethod
@@ -184,7 +213,10 @@ class PtySession:
                 os.close(error_fd)
                 if self.cwd:
                     os.chdir(self.cwd)
-                os.execvp(self.cmd[0], self.cmd)
+                if self.env is not None:
+                    os.execvpe(self.cmd[0], self.cmd, self.env)
+                else:
+                    os.execvp(self.cmd[0], self.cmd)
             except BaseException:
                 try:
                     os.write(child_error_fd, b"1")
@@ -288,6 +320,7 @@ class PtySession:
             while code is None:
                 await asyncio.sleep(0.01)
                 code = self._poll_posix_exit()
+            self._release_writer(reaped=True)
             await self.on_exit(code)
 
     def is_alive(self) -> bool:
@@ -304,6 +337,10 @@ class PtySession:
         if not alive:
             self._alive = False
         return alive
+
+    async def wait_closed(self):
+        if self._reader_task is not None:
+            await asyncio.shield(self._reader_task)
 
     def write(self, data: str):
         if not self.is_alive():

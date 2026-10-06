@@ -160,6 +160,62 @@ def test_win_kill_wakes_blocked_read_and_is_idempotent(monkeypatch):
     asyncio.run(run())
 
 
+def test_terminal_native_writer_is_held_until_process_reaped(monkeypatch):
+    proc = _WinPty(["tail", EOFError()])
+    spawn = _fake_win(monkeypatch, proc)
+    lease = Mock()
+    order = []
+    lease.acquire.side_effect = lambda: order.append("acquire")
+    lease.begin_process.side_effect = lambda: order.append("begin")
+    lease.process_reaped.side_effect = lambda: order.append("reaped")
+    lease.release.side_effect = lambda: order.append("release")
+    spawn.side_effect = lambda *args, **kwargs: (order.append("spawn"), proc)[1]
+
+    async def run():
+        sess = P.PtySession(["fake"], None, _noop, _noop)
+        sess.writer_lease_factory = lambda: lease
+        sess.context_preparing = lambda: order.append("prepare")
+        await sess.start()
+        await sess._reader_task
+        assert order == ["acquire", "prepare", "begin", "spawn", "reaped", "release"]
+    asyncio.run(run())
+
+
+def test_terminal_native_writer_refusal_never_spawns(monkeypatch):
+    from connector.native_writer import NativeWriterBusy
+    spawn = _fake_win(monkeypatch, _WinPty())
+    lease = Mock()
+    lease.acquire.side_effect = NativeWriterBusy()
+
+    async def run():
+        sess = P.PtySession(["fake"], None, _noop, _noop)
+        sess.writer_lease_factory = lambda: lease
+        with pytest.raises(NativeWriterBusy):
+            await sess.start()
+        spawn.assert_not_called()
+        lease.begin_process.assert_not_called()
+        lease.process_reaped.assert_not_called()
+        lease.release.assert_called_once()
+    asyncio.run(run())
+
+
+def test_terminal_cleanup_failure_does_not_clear_native_writer_journal(monkeypatch):
+    proc = _WinPty([EOFError()])
+    _fake_win(monkeypatch, proc)
+    lease = Mock()
+    monkeypatch.setattr(P.PtySession, "_close_win", Mock(side_effect=OSError("cleanup failed")))
+
+    async def run():
+        sess = P.PtySession(["fake"], None, _noop, _noop)
+        sess.writer_lease_factory = lambda: lease
+        await sess.start()
+        with pytest.raises(OSError, match="cleanup failed"):
+            await sess.wait_closed()
+        lease.process_reaped.assert_not_called()
+        lease.release.assert_called_once()
+    asyncio.run(run())
+
+
 def test_win_spawn_failure_and_kill_before_start_are_safe(monkeypatch):
     spawn = _fake_win(monkeypatch, _WinPty())
     spawn.side_effect = OSError("fake private argv")

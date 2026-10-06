@@ -312,8 +312,10 @@ class TestNativeContextContinuity:
     @pytest.mark.parametrize("runtime_id,scope", [
         ("claude-code-structured", "cwd"),
         ("copilot-cli-structured", "machine"),
+        ("claude-code", "cwd"),
+        ("copilot-cli", "machine"),
     ])
-    def test_structured_runtimes_declare_native_resume_and_its_scope(
+    def test_runtimes_declare_native_resume_and_its_scope(
             self, runtime_id, scope):
         context = runtimes.get(runtime_id).capabilities(
             installed=True, version="1.2.3")["features"]["context"]
@@ -326,17 +328,19 @@ class TestNativeContextContinuity:
             installed=False)["features"]["context"]
         assert context["available"] is False
 
-    def test_terminal_runtimes_report_process_scoped_context(self):
-        # A terminal keeps its context only while its process lives, so the
-        # capability must not claim the transcript can be resumed later.
-        context = runtimes.get("claude-code").capabilities(
+    def test_codex_declares_provider_generated_native_id(self):
+        context = runtimes.get("codex-cli").capabilities(
             installed=True, version="1.2.3")["features"]["context"]
-        assert context["continuity"] == "process"
-        assert context["resume_scope"] == "process"
+        assert context["continuity"] == "native_resume"
+        assert context["resume_scope"] == "cwd"
+        assert runtimes.get("codex-cli").terminal_factory is not None
+        assert runtimes.get("codex-cli").context_control.argv("native", resume=True) == ["resume", "native"]
 
     @pytest.mark.parametrize("runtime_id,flag", [
         ("claude-code-structured", "--session-id"),
         ("copilot-cli-structured", "--session-id"),
+        ("claude-code", "--session-id"),
+        ("copilot-cli", "--session-id"),
     ])
     def test_first_turn_names_the_session_and_later_turns_resume_it(
             self, runtime_id, flag):

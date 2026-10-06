@@ -140,6 +140,33 @@ def test_history_json_permissions_generic_capability_and_missing_recording(app_c
         assert visible["resume_reason"]
 
 
+def test_terminal_native_resume_preserves_session_id_and_launch_settings(app_client):
+    client, main = app_client
+    box, aid, session = _history(client, main, surface="terminal")
+    with main.models.SessionLocal() as db:
+        devbox = db.get(main.Devbox, box["devbox"]["id"])
+        capabilities = deepcopy(devbox.capabilities)
+        capabilities[0]["surfaces"][0]["id"] = "terminal"
+        devbox.capabilities = capabilities
+        db.commit()
+    sid = session["id"]
+    options = {"permission_mode": "bypassPermissions", "extra_args": "--model opus"}
+    with _connector(client, box) as connector, client.websocket_connect("/ws/term", headers=ORIGIN) as human:
+        assert _current(client, sid)["can_resume"]
+        frames = _human_frames(human, {"type": "resume", "session_id": sid,
+            "surface": "terminal", "launch_id": session["launch_id"], "launch_options": options})
+        assert _one(frames, "status")["state"] == "starting"
+        command = _one(_commands(_connector_frames(connector)), "resume")
+        assert command["session_id"] == sid
+        assert command["surface"] == "terminal"
+        assert command["launch_options"] == options
+        _connector_frames(connector, {**_ready(command), "surface": "terminal"})
+        assert _current(client, sid)["state"] == "live"
+        _human_frames(human, {"type": "attach", "session_id": sid})
+        assert not _commands(_connector_frames(connector))
+        assert [item["id"] for item in client.get(f"/api/agents/{aid}/sessions").json()] == [sid]
+
+
 def test_defaults_are_snapshotted_and_resume_options_are_session_local(app_client):
     client, main = app_client
     box, aid, session = _history(client, main)

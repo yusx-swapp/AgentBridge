@@ -1152,7 +1152,7 @@ test('Viewer, unsupported, offline and Terminal rows expose blocked reasons and 
     ['viewer', {}, /Read-only.*Operator/],
     ['operator', { resume_supported: false, can_resume: false, resume_reason: 'Native context unsupported' }, /Native context unsupported/],
     ['operator', { can_resume: false, resume_reason: 'Connector offline' }, /Connector offline/],
-    ['operator', { surface: 'terminal', resume_supported: false, can_resume: false }, /not Terminal/],
+    ['operator', { surface: 'terminal', resume_supported: false, can_resume: false }, /does not support native resume/],
   ]) {
     const h = harness({ role }), { pane, root } = h.create('blocked');
     h.sessions.set('a', [archived(extra)]);
@@ -1206,6 +1206,26 @@ test('Resume fetches current metadata and sends one same-ID websocket resume; st
   const snapshot = plain(pane.snapshot());
   assert.deepEqual(Object.keys(snapshot).sort(), ['agentId', 'kind', 'sessionId', 'surface', 'title']);
   assert.doesNotMatch(JSON.stringify(snapshot), /launch|resume|intent/);
+  pane.close();
+});
+
+test('Terminal native Resume opens xterm and resumes the same ID without creating a session', async()=>{
+  const h=harness(), {pane,root}=h.create('terminal-resume');
+  const session=archived({surface:'terminal',launch_id:'old-terminal'});
+  h.sessions.set('a',[session]);
+  await pane.open({kind:'history',agentId:'a'});
+  assert.equal(ui(root,'session-resume').disabled,false);
+  ui(root,'session-resume').click();await flush();
+  assert.equal(pane.getState().surface,'terminal');
+  assert.ok(ui(root,'terminal'));
+  assert.equal(ui(root,'chat-input'),null);
+  const socket=h.sockets[0];socket.open();
+  assert.equal(socket.frames[0].type,'resume');
+  assert.equal(socket.frames[0].session_id,'archived');
+  assert.equal(socket.frames[0].surface,'terminal');
+  socket.receive({type:'status',state:'starting',launch_id:'new-terminal'});
+  socket.receive({type:'session.ready',session_id:'archived',surface:'terminal',launch_id:'new-terminal'});
+  assert.equal(h.requests.some(request=>request.method==='POST'),false);
   pane.close();
 });
 
