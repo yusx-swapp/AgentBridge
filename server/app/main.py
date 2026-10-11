@@ -1626,7 +1626,7 @@ def _session_json(sess: Session, agent: Agent | None = None, *, role: str | None
     result = {"id": sess.id, "agent_id": sess.agent_id, "title": sess.title,
               "surface": sess.surface, "created_at": sess.created_at.isoformat(),
               "state": state, "launch_id": sess.launch_id,
-              "launch_options": sess.launch_options,
+              "launch_options": sess.launch_options, "project_id": sess.project_id,
               "can_delete": role in {WS_ROLE_ADMIN, "owner"},
               "can_rename": operator, "resume_supported": supported,
               "can_resume": operator and online and supported, "resume_reason": reason}
@@ -1661,10 +1661,17 @@ async def create_session(agent_id: str, request: Request, s: OrmSession = Depend
     body = await _session_body(request)
     surface = _surface_hint(body)
     surface = runtime_policy(a.runtime).session_surface(surface)
+    project_id = body.get("project_id", a.local_project_id) or None
+    if project_id is not None:
+        project = s.get(DevboxProject, project_id) if isinstance(project_id, str) else None
+        if project is None or project.devbox_id != a.devbox_id:
+            raise HTTPException(422, "project is not registered on this Machine")
+        if runtime_policy(a.runtime).renderer and project_id != a.local_project_id:
+            raise HTTPException(422, "This runtime only runs in its Agent project")
     # Canonical UUID text for new native CLI handles. Existing IDs never change.
     sess = Session(id=str(uuid4()), user_id=u.id, agent_id=a.id,
                    workspace_id=a.devbox.workspace_id, title=f"{a.display_name} session",
-                   surface=surface, launch_options=_launch_options(
+                   surface=surface, project_id=project_id, launch_options=_launch_options(
                        body.get("launch_options", _default_launch_options(a)), a))
     s.add(sess)
     s.commit()
@@ -2893,7 +2900,8 @@ async def ws_term(ws: WebSocket):
                     "type": "resume" if t == "resume" and not policy.library_continuation else "open",
                     "agent_id": sess.agent_id, "session_id": sess.id,
                     "launch_id": launch, "cols": cols, "rows": rows, "surface": surface,
-                    **({"launch_options": sess.launch_options} if not policy.renderer else {})})
+                    **({"launch_options": sess.launch_options, "project_id": sess.project_id}
+                       if not policy.renderer else {})})
                 if not ok:
                     s.execute(update(Session).where(
                         Session.id == sess.id, Session.launch_id == launch).values(launch_id=previous))

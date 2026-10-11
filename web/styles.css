@@ -99,6 +99,15 @@ svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-wi
 .agent-session:hover{background:var(--hover);color:var(--fg)}
 .agent-session.is-selected{background:var(--selected);color:var(--fg)}
 .agent-sessions .group-empty{padding:4px 8px}
+.project-heading{display:flex;align-items:center;padding:2px 0 0 2px}
+.project-toggle{display:flex;flex:1;min-width:0;align-items:center;gap:5px;padding:3px 4px;border:0;border-radius:6px;background:transparent;font-size:11px;font-weight:500;color:var(--fg);text-align:left}
+.project-toggle:hover{background:var(--hover)}
+.project-toggle svg{width:13px;height:13px;flex:none;color:var(--muted)}
+.project-toggle svg:first-child{width:11px;height:11px;transition:transform .12s}
+.project-toggle[aria-expanded="false"] svg:first-child{transform:rotate(-90deg)}
+.project-toggle span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-heading .icon-button{width:20px;height:20px;opacity:.6}
+.project-heading~.agent-session-row{margin-left:12px;padding-left:6px;border-left:1px solid var(--line)}
 .connection-dot{display:inline-block;flex:none;width:5px;height:5px;border-radius:50%;background:var(--muted);opacity:.5}
 .connection-dot[data-state="online"],.connection-dot[data-state="idle"]{background:var(--good);opacity:.85}
 .connection-dot[data-state="busy"]{background:var(--warn);opacity:1}

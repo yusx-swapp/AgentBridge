@@ -371,3 +371,24 @@ test('local helper order is deterministic and optional CDN assets are not in the
   const css=fs.readFileSync(path.join(__dirname,'styles.css'),'utf8');
   assert.match(css,/\[hidden\]\s*\{\s*display\s*:\s*none\s*!important/);
 });
+
+test('project plus button creates the session in that project',async()=>{
+  const h=harness();h.devboxes[0].projects=[{id:'p1',name:'Repo'}];await h.app.start();
+  h.root.querySelector('[data-open-agent="a1"]').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.match(h.root.querySelector('.project-heading').textContent,/Repo/);
+  h.override(url=>url==='/api/agents/a1/sessions'?[{id:'s1',agent_id:'a1',project_id:'p1',title:'One',state:'live'}]:undefined);
+  h.root.querySelector('[data-agent-sessions="a1"]').click();h.root.querySelector('[data-open-agent="a1"]').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.ok(h.root.querySelector('[data-open-session="s1"]'));
+  h.root.querySelector('[data-project-toggle="a1:p1"]').click();
+  assert.equal(h.root.querySelector('[data-open-session="s1"]'),null);
+  h.root.querySelector('[data-project-toggle="a1:p1"]').click();
+  assert.ok(h.root.querySelector('[data-open-session="s1"]'));
+  h.root.querySelector('[data-new-session="a1"][data-project="p1"]').click();
+  h.document.querySelector('.context-menu button').click();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const created=h.requests.find(r=>r.method==='POST'&&/\/sessions$/.test(r.url));
+  assert.equal(JSON.parse(created.body).project_id,'p1');
+  h.app.destroy();
+});

@@ -285,6 +285,7 @@
         title: String(next.title || found?.agent?.display_name || found?.agent?.handle || next.agentId),
         surface: validSurface(next.surface),
       };
+      if (next.projectId) target.projectId = String(next.projectId);
       if (next.sessionId && (next.forceNew !== true || next.restore === true)) target.sessionId = String(next.sessionId);
       restoreRequested = next.restore === true;
       if (!target.surface && target.kind !== 'replay')
@@ -359,6 +360,7 @@
         if (restoreRequested) { unavailable('The saved session cannot be resumed. Start a new session explicitly.'); return; }
         if (!canOperate()) { unavailable('Read-only: an Operator, Admin or Owner must start a session.', false); return; }
         session = await request(agentPath(), { method: 'POST', body: JSON.stringify({ surface: target.surface,
+          ...(target.projectId ? {project_id:target.projectId} : {}),
           ...(launchOptions ? {launch_options:launchOptions} : {}) }) });
         if (!current(view)) return;
         created = true;
@@ -1046,6 +1048,7 @@
     function applySessionMetadata(session) {
       if (session.renderer) persistedRenderer = session.renderer;
       if (typeof session.title === 'string') target.title = session.title;
+      if (session.project_id) target.projectId = session.project_id;
       target.launchId = session.launch_id;
     }
     function updateLaunch(frame) {
@@ -1328,7 +1331,7 @@
     }
     function newSession() {
       if (!canOperate() || !target) return Promise.resolve(getState());
-      return open({ kind: 'live', agentId: target.agentId, title: target.title, surface: target.surface, forceNew: true });
+      return open({ kind: 'live', agentId: target.agentId, title: target.title, surface: target.surface, projectId: target.projectId, forceNew: true });
     }
     async function endSession() {
       if (endPending || !canEndSession()) return false;

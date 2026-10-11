@@ -32,6 +32,7 @@ class FakePty:
 
     def __init__(self, cmd, cwd, on_output, on_exit, cols=120, rows=30):
         self.cmd = cmd
+        self.cwd = cwd
         self.on_output = on_output
         self.on_exit = on_exit
         self.killed = False
@@ -98,6 +99,23 @@ class SupervisorSplitTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sup.ptys[("a", "two")].cmd, ["claude", "--session-id", "two"])
         self.assertEqual(config, {"permission_mode": "plan", "extra_args": "--model sonnet"})
         sup.shutdown()
+
+    async def test_session_project_id_selects_cwd_and_unknown_project_never_spawns(self):
+        from connector.local_store import LocalProjectStore
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalProjectStore(os.path.join(tmp, "state.db"))
+            project = store.add(tmp, "Repo")
+            sup = SessionSupervisor({"a": {"runtime": "codex-cli", "cwd": os.getcwd()}}, local_store=store)
+            await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "one",
+                                      "project_id": project.id})
+            self.assertEqual(sup.ptys[("a", "one")].cwd, project.path)
+            self.assertEqual(sup.agents["a"]["cwd"], os.getcwd())
+            await sup.handle_control({"type": "open", "agent_id": "a", "session_id": "two",
+                                      "project_id": "missing"})
+            self.assertNotIn(("a", "two"), sup.ptys)
+            self.assertTrue(any(f.get("code") == "project_unavailable" for f in sup.pending))
+            sup.shutdown()
+            store.close()
 
     async def test_invalid_launch_arguments_fail_without_spawning(self):
         sup = SessionSupervisor({"a": {"runtime": "claude-code"}})

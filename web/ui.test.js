@@ -432,3 +432,13 @@ test('account invitation links keep the secret in the fragment, never the query'
   assert.equal(new URLSearchParams(url.hash.slice(1)).get('invite'), 'test&token');
   assert.throws(()=>ui.accountInvitationUrl('javascript:bad','test'), /HTTP origin/);
 });
+
+test('agentProjects groups sessions under machine projects', () => {
+  const box = {projects: [{id: 'p1', name: 'One'}, {id: 'p2', name: 'Two'}]};
+  const agent = {id: 'a', local_project_id: 'p1'};
+  const groups = ui.agentProjects(box, agent, [{id: 's1', project_id: 'p2'}, {id: 's2'}, {id: 's3', project_id: 'gone'}]);
+  assert.deepEqual(groups.map(g => [g.id, g.sessions.map(s => s.id)]),
+    [['p1', ['s2']], ['p2', ['s1']], [null, ['s3']]]);
+  assert.deepEqual(ui.agentProjects(box, {...agent, renderer: true}, []).map(g => g.id), ['p1']);
+  assert.deepEqual(ui.agentProjects({}, {}, []).map(g => g.name), ['No project']);
+});

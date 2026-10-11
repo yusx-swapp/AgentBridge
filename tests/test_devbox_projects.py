@@ -105,6 +105,30 @@ def test_connector_project_report_migrates_legacy_cwd_without_uploading_paths():
         assert all(item["local_project_id"] is None for item in after["agents"])
 
 
+def test_session_project_defaults_to_agent_project_and_rejects_other_machines():
+    client, _ = build_app()
+    with client:
+        register(client)
+        box, token = create_devbox(client, "first")
+        other, other_token = create_devbox(client, "second")
+        for devbox, secret, ids in ((box, token, ("p1", "p2")), (other, other_token, ("p3",))):
+            report = client.post(
+                f"/api/devboxes/{devbox['id']}/projects",
+                headers={"authorization": f"Bearer {secret}"},
+                json={"projects": [{"id": pid, "name": pid} for pid in ids], "migrations": []})
+            assert report.status_code == 200, report.text
+        agent = client.post(f"/api/devboxes/{box['id']}/agents", json={
+            "handle": "codex", "runtime": "codex-cli", "local_project_id": "p1"}).json()
+        url = f"/api/agents/{agent['id']}/sessions"
+
+        assert client.post(url, json={}).json()["project_id"] == "p1"
+        chosen = client.post(url, json={"project_id": "p2"}).json()
+        assert chosen["project_id"] == "p2"
+        assert client.get(f"/api/sessions/{chosen['id']}").json()["project_id"] == "p2"
+        assert client.post(url, json={"project_id": "p3"}).status_code == 422
+        assert client.post(url, json={"project_id": "missing"}).status_code == 422
+
+
 def test_project_report_rejects_paths_and_cross_devbox_project_ids():
     client, _ = build_app()
     with client:

@@ -406,7 +406,8 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             await self.open_pty(
                 aid, sid, frame.get("cols", 120), frame.get("rows", 30),
                 surface=frame.get("surface"), launch_id=frame.get("launch_id"),
-                resume=t == "resume", launch_options=frame.get("launch_options"))
+                resume=t == "resume", launch_options=frame.get("launch_options"),
+                project_id=frame.get("project_id"))
         elif t == "input":
             p = self.ptys.get((aid, sid))
             if p:
@@ -509,7 +510,8 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
     async def open_pty(self, agent_id: str, session_id: str,
                        cols: int = 120, rows: int = 30,
                        surface: str | None = None, launch_id=None,
-                       *, resume: bool = False, launch_options=None) -> None:
+                       *, resume: bool = False, launch_options=None,
+                       project_id=None) -> None:
         if self._stopped or agent_id not in self.agents:
             return
         key = (agent_id, session_id)
@@ -543,7 +545,7 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
                 try:
                     await self._open_pty(
                         agent_id, session_id, cols, rows, surface, current,
-                        emit, launch_id, resume, launch_options)
+                        emit, launch_id, resume, launch_options, project_id)
                 except (_ContextUnavailable, NativeWriterError) as exc:
                     emit({"type": "runtime.unavailable", "agent_id": agent_id,
                           "session_id": session_id, "surface": surface,
@@ -583,7 +585,8 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
         self._open_generations.pop(key, None)
 
     async def _open_pty(self, agent_id, session_id, cols, rows, surface,
-                        current, emit, launch_id, resume, launch_options=None) -> None:
+                        current, emit, launch_id, resume, launch_options=None,
+                        project_id=None) -> None:
         key = (agent_id, session_id)
         existing = self.ptys.get(key)
         if existing and existing.is_alive():
@@ -646,7 +649,9 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
         info = self.agents.get(agent_id)
         if not info:
             return
-        if info.get("project_error"):
+        project = (self.local_store.get(str(project_id))
+                   if project_id and self.local_store is not None else None)
+        if (project_id and project is None) or (not project_id and info.get("project_error")):
             emit({
                 "type": "runtime.unavailable",
                 "agent_id": agent_id,
@@ -658,6 +663,8 @@ class SessionSupervisor(DeepOrcaSupervisorMixin):
             return
         info = dict(info)  # snapshot across asynchronous availability probing
         agent_info = info
+        if project is not None:
+            info = {**info, "cwd": project.path}
         if launch_options is not None:
             info = dict(info)
             options = validate_launch_options(launch_options)

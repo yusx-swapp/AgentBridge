@@ -353,6 +353,21 @@
     return hay.indexOf(needle) !== -1;
   }
 
+  // Projects under an expanded Agent, each holding that Agent's sessions.
+  // Sessions without project_id ran in the Agent's default project.
+  function agentProjects(box, agent, sessions){
+    const all = Array.isArray(box?.projects) ? box.projects : [];
+    const projects = agent?.renderer ? all.filter(project => project.id === agent.local_project_id) : all;
+    const known = new Set(projects.map(project => project.id));
+    const list = Array.isArray(sessions) ? sessions : [];
+    const projectOf = session => session.project_id || agent?.local_project_id || null;
+    const groups = projects.map(project => ({id: project.id, name: project.name,
+      sessions: list.filter(session => projectOf(session) === project.id)}));
+    const loose = list.filter(session => !known.has(projectOf(session)));
+    if(loose.length || !groups.length) groups.push({id: null, name: 'No project', sessions: loose});
+    return groups;
+  }
+
   // Filter a fleet by a free-text query. A devbox is kept when its name or ID
   // matches, or when any of its agents match; matching agents are kept.
   function filterDevboxes(devboxes, query){
@@ -547,6 +562,7 @@
     agentStatus: agentStatus,
     fleetSummary: fleetSummary,
     filterDevboxes: filterDevboxes,
+    agentProjects: agentProjects,
     flattenAgents: flattenAgents,
     filterAgents: filterAgents,
     selectWorkspace: selectWorkspace,

@@ -24,6 +24,7 @@
     more:svg('<circle cx="4" cy="10" r=".8"/><circle cx="10" cy="10" r=".8"/><circle cx="16" cy="10" r=".8"/>'),
     members:svg('<circle cx="7" cy="7" r="3"/><path d="M2 17v-2a5 5 0 0 1 10 0v2M13 4a3 3 0 0 1 0 6M15 12a4 4 0 0 1 3 4v1"/>'),
     agent:svg('<rect x="3" y="4" width="14" height="12" rx="3"/><path d="m6 8 2 2-2 2M11 12h3"/>'),
+    folder:svg('<path d="M3 6a1 1 0 0 1 1-1h4l2 2h6a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'),
   };
   const esc = UI.escapeHtml;
   const EDITABLE = 'input,textarea,select,[contenteditable="true"]';
@@ -45,6 +46,7 @@
     const savedSidebar=readPref('sidebar');
     let sidebarClosed=savedSidebar ? savedSidebar==='closed' : !!window.matchMedia?.('(max-width:680px)').matches;
     let query='', tmuxEnabled=readPref('shortcuts')==='tmux', expanded=null, liveSessions=null;
+    const collapsedProjects=new Set();
     let theme = readPref('theme', 'deepbox.theme') === 'light' ? 'light' : 'dark';
     let pendingInvite = null, accountInvite = '';
     const inviteKey = 'agentbridge.pendingWorkspaceInvitation';
@@ -322,24 +324,29 @@
         <div class="agent-list">${(box.agents||[]).map(agent=>{
           const state=UI.agentStatus(agent);
           return `<div class="agent-row${selected===agent.id?' is-selected':''}"><button class="agent-open" data-open-agent="${esc(agent.id)}" title="${esc(agent.display_name||agent.handle)}"><span class="agent-mark">${ICONS.agent}</span><span class="agent-handle">${esc(agent.display_name||agent.handle)}<small>@${esc(agent.handle)}</small></span><span class="connection-dot" data-state="${state.state}" title="${esc(state.label)}"></span></button><button class="icon-button agent-sessions-toggle" data-agent-sessions="${esc(agent.id)}" aria-expanded="${expanded===agent.id}" aria-label="Live sessions for ${esc(agent.handle)}" title="Live sessions">${ICONS.chevron}</button><button class="icon-button agent-menu" data-agent-menu="${esc(agent.id)}" aria-label="Actions for ${esc(agent.handle)}" title="Agent actions">${ICONS.more}</button></div>`
-            +(expanded===agent.id ? `<div class="agent-sessions">${UI.canAdminWorkspace(workspace()?.role)||workspace()?.role==='operator' ? `<button class="ghost compact" data-new-session="${esc(agent.id)}">+ New session</button>` : ''}
-              ${liveSessions ? liveSessions.map(session=>`<div class="agent-session-row"><button class="agent-session${active?.sessionId===session.id?' is-selected':''}" data-open-session="${esc(session.id)}">${esc(session.title||'Session')}<small>${esc(session.state)}</small></button><button class="icon-button" data-session-menu="${esc(session.id)}" aria-label="Actions for ${esc(session.title||'Session')}">${ICONS.more}</button></div>`).join('')||'<p class="group-empty">No sessions</p>' : '<p class="group-empty">Loading…</p>'}</div>` : '');
+            +(expanded===agent.id ? `<div class="agent-sessions">${liveSessions ?             UI.agentProjects(box,agent,liveSessions).map((group,_,groups)=>{const key=agent.id+':'+(group.id||''), open=!collapsedProjects.has(key);return `<div class="project-heading"><button class="project-toggle" data-project-toggle="${esc(key)}" aria-expanded="${open}" title="${open?'Collapse':'Expand'}">${ICONS.chevron}${ICONS.folder}<span>${esc(group.name)}</span></button>${(group.id||groups.length===1)&&(UI.canAdminWorkspace(workspace()?.role)||workspace()?.role==='operator') ? `<button class="icon-button" data-new-session="${esc(agent.id)}" data-project="${esc(group.id||'')}" aria-label="New session in ${esc(group.name)}" title="New session">${ICONS.plus}</button>` : ''}</div>`
+                          +(open?group.sessions.map(session=>`<div class="agent-session-row"><button class="agent-session${active?.sessionId===session.id?' is-selected':''}" data-open-session="${esc(session.id)}">${esc(session.title||'Session')}<small>${esc(session.state)}</small></button><button class="icon-button" data-session-menu="${esc(session.id)}" aria-label="Actions for ${esc(session.title||'Session')}">${ICONS.more}</button></div>`).join(''):'');}).join('') : '<p class="group-empty">Loading…</p>'}</div>` : '');
         }).join('')||'<p class="group-empty">No agents yet</p>'}</div>
       </section>`).join('') : `<div class="sidebar-empty"><p>${query?'No matching agents.':'Connect a machine to bring your agents here.'}</p>${!query&&canManage()?'<button class="ghost" data-connect-empty>Connect machine</button>':''}</div>`;
       list.querySelectorAll('[data-open-agent]').forEach(button=>button.onclick=()=>toggleSessions(button.dataset.openAgent));
       list.querySelectorAll('[data-agent-menu]').forEach(button=>button.onclick=()=>agentMenu(button.dataset.agentMenu,button));
       list.querySelectorAll('[data-agent-sessions]').forEach(button=>button.onclick=()=>toggleSessions(button.dataset.agentSessions));
+      list.querySelectorAll('[data-project-toggle]').forEach(button=>button.onclick=()=>{
+        const key=button.dataset.projectToggle;
+        if(!collapsedProjects.delete(key))collapsedProjects.add(key);
+        renderSidebar();
+      });
       list.querySelectorAll('[data-open-session]').forEach(button=>button.onclick=()=>{
         const session=liveSessions.find(item=>item.id===button.dataset.openSession), found=findAgent(expanded);
         if(session && found) bench?.open({kind:session.state==='live'?'live':'replay',agentId:expanded,sessionId:session.id,surface:session.surface,title:session.title});
       });
       list.querySelectorAll('[data-new-session]').forEach(button=>button.onclick=()=>{
-        const id=button.dataset.newSession, found=findAgent(id);
+        const id=button.dataset.newSession, projectId=button.dataset.project||undefined, found=findAgent(id);
         const capability=UI.findRuntimeCapability(found.box.capabilities,found.agent.runtime);
         const surfaces=UI.isCapabilityV2(capability) ? UI.capabilitySurfaces(capability).filter(s=>s.available).map(s=>s.id) : [defaultSurface(id)];
         scopedMenu(button,surfaces.map(surface=>({label:surface==='structured'?'New chat session':'New terminal session',
           disabled:!found.box.online,action:async()=>{
-            await bench?.open({kind:'live',agentId:id,surface,forceNew:true});
+            await bench?.open({kind:'live',agentId:id,surface,projectId,forceNew:true});
             if(expanded===id) await loadSessions(id);
           }})));
       });

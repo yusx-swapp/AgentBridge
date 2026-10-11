@@ -158,6 +158,9 @@ class Session(Base):
     retention: Mapped[str] = mapped_column(String, default=RETENTION_30D)
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspace.id", ondelete="SET NULL"), nullable=True)
+    # Connector-local project (cwd) for this session; NULL uses the Agent default.
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("devbox_project.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 
@@ -500,6 +503,10 @@ def _migrate(engine) -> None:
             stmts.append(
                 "ALTER TABLE session ADD COLUMN workspace_id VARCHAR "
                 "REFERENCES workspace(id) ON DELETE SET NULL")
+        if "project_id" not in session_cols:
+            stmts.append(
+                "ALTER TABLE session ADD COLUMN project_id VARCHAR "
+                "REFERENCES devbox_project(id) ON DELETE SET NULL")
     if "keyboard_lease" in inspector.get_table_names():
         lease_cols = {c["name"] for c in inspector.get_columns("keyboard_lease")}
         if "version" not in lease_cols:
